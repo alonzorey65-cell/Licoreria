@@ -1,9 +1,7 @@
-// Detecta automáticamente si estamos en GitHub Pages o en local
 const isGitHubPages = window.location.hostname.includes('github.io');
 
-// Si está en producción, usa tu backend en la nube; si estás en tu PC, usa localhost
 const defaultApiUrl = isGitHubPages 
-  ? 'https://tu-backend-en-la-nube.com/api' // <-- Reemplaza esto con la URL real de tu backend público (Render, Railway, etc.)
+  ? 'https://tu-backend-real.onrender.com/api' // Reemplaza con tu URL real de Render o Railway
   : 'http://localhost:5000/api';
 
 const configuredApiUrl = import.meta.env.VITE_API_URL || defaultApiUrl;
