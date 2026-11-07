@@ -3,7 +3,8 @@ import AdminPage from '../pages/AdminPage';
 import ClientPage from '../pages/ClientPage';
 
 export default function AppRoutes({ licores, mesas, fetchAll, catalogLoading, catalogError }) {
-  if (window.location.pathname === '/admin') {
+  // Usamos .endsWith('/admin') para que detecte la ruta sin importar si lleva /Licoreria/ adelante
+  if (window.location.pathname.endsWith('/admin')) {
     return <AdminPage licores={licores} mesas={mesas} fetchAll={fetchAll} />;
   }
 
