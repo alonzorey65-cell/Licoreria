@@ -1,0 +1,24 @@
+# Dependencias de Node.js
+node_modules/
+
+# Archivos de entorno con credenciales
+.env
+.env.example
+
+# Archivos compilados del frontend
+frontend/dist/
+
+# Archivos subidos al servidor
+backend/uploads/
+
+# Base de datos local de prueba
+backend/db.json
+
+# Archivos de log
+*.log
+
+# Archivos de configuración del IDE
+.vscode/
+
+migraciones de base de datos
+backend/migrations/
