@@ -17,15 +17,15 @@ jobs:
         with:
           node-version: 18
       - name: Instalar dependencias
-        working-directory: ./frontend
+        working-directory: ./Interfaz
         run: npm install
       - name: Compilar proyecto (Build)
-        working-directory: ./frontend
+        working-directory: ./Interfaz
         run: npm run build
       - name: Subir artefacto para GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./frontend/dist
+          path: ./Interfaz/dist
   deploy:
     environment:
       name: github-pages
