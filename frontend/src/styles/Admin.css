@@ -158,6 +158,10 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   scrollbar-width: thin;
 }
 
+.admin-mobile-navigation {
+  display: none;
+}
+
 .sidebar-btn {
   display: flex;
   align-items: center;
@@ -769,12 +773,25 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   }
 
   .sidebar-menu {
-    flex-direction: row;
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 0 0 4px;
-    scroll-snap-type: x proximity;
+    display: none;
+  }
+
+  .admin-mobile-navigation {
+    display: grid;
+    gap: 5px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .admin-mobile-navigation select {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    background: var(--admin-paper);
+    color: var(--text-main);
   }
 
   .sidebar-btn {

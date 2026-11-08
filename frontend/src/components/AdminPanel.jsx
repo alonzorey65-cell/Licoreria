@@ -990,7 +990,19 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
               <p>Panel de administración</p>
             </div>
           </div>
-          
+
+          <label className="admin-mobile-navigation">
+            <span>Ir a sección</span>
+            <select
+              value={activeMenu}
+              onChange={event => setActiveMenu(event.target.value)}
+            >
+              {allowedSections.map(section => (
+                <option key={section.id} value={section.id}>{section.icon} {section.label}</option>
+              ))}
+            </select>
+          </label>
+
           <nav className="sidebar-menu" aria-label="Secciones de administración">
             {allowedSections.map(section => (
               <button
