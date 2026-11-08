@@ -15,6 +15,12 @@ export function hasVerifiedCustomerIdentity(user) {
 export function getSupabaseClient() {
   if (!supabaseClientPromise) {
     supabaseClientPromise = (async () => {
+      const envUrl = import.meta.env.VITE_SUPABASE_URL;
+      const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      if (envUrl && envKey) {
+        return createClient(envUrl, envKey);
+      }
+
       const response = await fetch(apiUrl('public-config'));
       if (!response.ok) {
         throw new Error(`La configuración pública de Supabase respondió ${response.status}.`);
