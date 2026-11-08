@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { apiUrl } from './apiConfig';
+import { resolveSupabaseConfig } from './supabaseConfig';
 
 let supabaseClientPromise;
 
@@ -12,31 +13,14 @@ export function hasVerifiedCustomerIdentity(user) {
   );
 }
 
-const DEFAULT_SUPABASE_URL = 'https://aogmqjbeesdtcfhjeeqt.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_oHKcTUS7twjnwk-ZiD0Oqg_gBLjmhku';
-
 export function getSupabaseClient() {
   if (!supabaseClientPromise) {
     supabaseClientPromise = (async () => {
-      const envUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-      const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
-      if (envUrl && envKey) {
-        return createClient(envUrl, envKey);
-      }
-
-      try {
-        const response = await fetch(apiUrl('public-config'));
-        if (response.ok) {
-          const { supabaseUrl, publishableKey } = await response.json();
-          if (supabaseUrl && publishableKey) {
-            return createClient(supabaseUrl, publishableKey);
-          }
-        }
-      } catch {
-        // Backend no disponible
-      }
-
-      throw new Error('Falta la URL o la clave publicable de Supabase.');
+      const { url, key } = await resolveSupabaseConfig(apiUrl('public-config'), {
+        url: import.meta.env.VITE_SUPABASE_URL,
+        key: import.meta.env.VITE_SUPABASE_ANON_KEY
+      });
+      return createClient(url, key);
     })().catch(error => {
       supabaseClientPromise = null;
       throw error;

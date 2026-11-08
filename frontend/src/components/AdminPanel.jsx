@@ -634,7 +634,9 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
       }
     } catch (error) {
       console.error('No se pudo autenticar la cuenta administrativa.', error);
-      setAdminError(error.message || 'No se pudo iniciar sesión.');
+      setAdminError(/load failed|failed to fetch|network request failed|networkerror/i.test(error.message || '')
+        ? 'No se pudo conectar con Supabase. Revisa tu conexión e inténtalo de nuevo.'
+        : error.message || 'No se pudo iniciar sesión.');
     }
   };
 

@@ -13,6 +13,13 @@ Actions** antes de desplegar:
 - `VITE_SUPABASE_ANON_KEY`: clave pública (anon o publishable) del mismo
   proyecto Supabase. Nunca uses una clave `service_role` en el frontend.
 
+El frontend obtiene preferentemente la URL y la clave pública desde
+`/api/public-config` del backend, para usar el mismo proyecto que la tienda.
+Las dos variables de Supabase del frontend sirven de respaldo si el backend no
+está disponible y deben apuntar al mismo proyecto; no uses valores de ejemplo.
+El backend debe tener `SUPABASE_KEY` configurada con una clave pública para
+que ese endpoint funcione.
+
 Los valores se incorporan al compilar: después de cambiar un secreto, ejecuta
 de nuevo el flujo de GitHub Actions y espera a que termine el despliegue. Para
 comprobar la conexión, visita `VITE_API_URL/licores` usando una URL terminada
