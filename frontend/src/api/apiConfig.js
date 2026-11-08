@@ -1,5 +1,7 @@
+import { normalizeApiBaseUrl } from './normalizeApiBaseUrl';
+
 const configuredApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-export const API_BASE_URL = configuredApiUrl.replace(/\/+$/, '');
+export const API_BASE_URL = normalizeApiBaseUrl(configuredApiUrl);
 
 const isLocalApi = /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(API_BASE_URL);
 const isLocalPage = ['localhost', '127.0.0.1'].includes(window.location.hostname);
