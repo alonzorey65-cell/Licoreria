@@ -12,26 +12,31 @@ export function hasVerifiedCustomerIdentity(user) {
   );
 }
 
+const DEFAULT_SUPABASE_URL = 'https://aogmqjbeesdtcfhjeeqt.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_oHKcTUS7twjnwk-ZiD0Oqg_gBLjmhku';
+
 export function getSupabaseClient() {
   if (!supabaseClientPromise) {
     supabaseClientPromise = (async () => {
-      const envUrl = import.meta.env.VITE_SUPABASE_URL;
-      const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const envUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+      const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
       if (envUrl && envKey) {
         return createClient(envUrl, envKey);
       }
 
-      const response = await fetch(apiUrl('public-config'));
-      if (!response.ok) {
-        throw new Error(`La configuración pública de Supabase respondió ${response.status}.`);
+      try {
+        const response = await fetch(apiUrl('public-config'));
+        if (response.ok) {
+          const { supabaseUrl, publishableKey } = await response.json();
+          if (supabaseUrl && publishableKey) {
+            return createClient(supabaseUrl, publishableKey);
+          }
+        }
+      } catch {
+        // Backend no disponible
       }
 
-      const { supabaseUrl, publishableKey } = await response.json();
-      if (!supabaseUrl || !publishableKey) {
-        throw new Error('Falta la URL o la clave publicable de Supabase.');
-      }
-
-      return createClient(supabaseUrl, publishableKey);
+      throw new Error('Falta la URL o la clave publicable de Supabase.');
     })().catch(error => {
       supabaseClientPromise = null;
       throw error;
