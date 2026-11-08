@@ -351,40 +351,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
         return;
       }
       try {
-        let profile;
-        try {
-          profile = await adminRequest(apiUrl('admin-session'));
-        } catch (sessionError) {
-          // Si el backend no está disponible (ej. en GitHub Pages o backend local apagado),
-          // validamos la sesión directamente con Supabase:
-          const email = session.user?.email?.trim().toLowerCase();
-          const supabase = await getSupabaseClient();
-          let role = null;
-          try {
-            const { data: employees } = await supabase.from('empleados').select('email, rol').not('email', 'is', null);
-            role = employees?.find(item => item.email?.trim().toLowerCase() === email)?.rol || null;
-          } catch {}
-
-          if (!role && (email === 'alonzorey65@gmail.com' || email?.includes('admin'))) {
-            role = 'Administrador';
-          }
-
-          if (!role) {
-            throw new Error('Esta cuenta no está vinculada a un empleado autorizado.');
-          }
-
-          const ALL_PERMISSIONS = [
-            'dashboard', 'licores', 'mesas', 'ayuda', 'reservas', 'pos', 'kardex', 'analitica',
-            'proveedores', 'empleados', 'promociones', 'resenas', 'categorias', 'configuracion',
-            'reportes', 'actividad', 'clientes', 'alertas', 'compras', 'caja', 'agenda',
-            'fidelizacion', 'lotes', 'permisos'
-          ];
-          profile = {
-            email,
-            role,
-            permissions: Object.fromEntries(ALL_PERMISSIONS.map(p => [p, true]))
-          };
-        }
+        const profile = await adminRequest(apiUrl('admin-session'));
 
         if (!active) return;
         setAdminUser(profile);
@@ -394,13 +361,17 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
           ? current
           : adminSections.find(section => profile.permissions?.[section.id])?.id || 'dashboard');
         setAdminError('');
+        setAdminNotice(current => current === 'Verificando cuenta y permisos…' ? '' : current);
       } catch (error) {
         console.error('La cuenta no tiene acceso al panel administrativo.', error);
         if (active) {
           setIsAuthenticated(false);
           setAdminUser(null);
           setAdminPermissions({});
-          setAdminError(error.message || 'La cuenta no tiene acceso al panel administrativo.');
+          setAdminNotice(current => current === 'Verificando cuenta y permisos…' ? '' : current);
+          setAdminError(/load failed|failed to fetch|network request failed|networkerror/i.test(error.message || '')
+            ? 'No se pudo conectar con el servidor para verificar los permisos. Inténtalo de nuevo.'
+            : error.message || 'No se pudieron verificar los permisos de esta cuenta.');
         }
         const supabase = await getSupabaseClient();
         await supabase.auth.signOut();
@@ -616,6 +587,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     setAdminError('');
+    setAdminNotice(isRegistering ? '' : 'Verificando cuenta y permisos…');
     const adminRedirectUrl = window.location.href.split('?')[0].split('#')[0];
     try {
       const supabase = await getSupabaseClient();
@@ -629,11 +601,10 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
       if (authResult.error) throw authResult.error;
       if (isRegistering && !authResult.data.session) {
         setAdminNotice('Cuenta creada. Confirma tu correo y vuelve para iniciar sesión.');
-      } else {
-        setAdminNotice('Cuenta autenticada. Verificando permisos…');
       }
     } catch (error) {
       console.error('No se pudo autenticar la cuenta administrativa.', error);
+      setAdminNotice('');
       setAdminError(/load failed|failed to fetch|network request failed|networkerror/i.test(error.message || '')
         ? 'No se pudo conectar con Supabase. Revisa tu conexión e inténtalo de nuevo.'
         : error.message || 'No se pudo iniciar sesión.');
