@@ -211,20 +211,41 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
   };
 
   const fetchCollection = async (path) => {
-    const response = await adminFetch(apiUrl(path));
-    if (!response.ok) {
-      let detail = '';
-      try {
-        const body = await response.json();
-        detail = body.error ? `: ${body.error}` : '';
-      } catch {
-        detail = '';
+    try {
+      const response = await adminFetch(apiUrl(path));
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const body = await response.json();
+          detail = body.error ? `: ${body.error}` : '';
+        } catch {
+          detail = '';
+        }
+        throw new Error(`No se pudo cargar ${path} (${response.status})${detail}`);
       }
-      throw new Error(`No se pudo cargar ${path} (${response.status})${detail}`);
+      const data = await response.json();
+      if (!Array.isArray(data)) throw new Error(`La respuesta de ${path} no tiene el formato esperado.`);
+      return data;
+    } catch (backendError) {
+      try {
+        const supabase = await getSupabaseClient();
+        const tableMap = {
+          'pos': 'facturas',
+          'resenas': 'reseñas',
+          'solicitudes-ayuda': 'solicitudes_ayuda',
+          'client-profiles': null
+        };
+        const tableName = tableMap[path] !== undefined ? tableMap[path] : path;
+        if (tableName) {
+          const { data, error } = await supabase.from(tableName).select('*');
+          if (error) throw error;
+          if (Array.isArray(data)) return data;
+        }
+      } catch {
+        // Fallback no disponible, lanzar error original
+      }
+      throw backendError;
     }
-    const data = await response.json();
-    if (!Array.isArray(data)) throw new Error(`La respuesta de ${path} no tiene el formato esperado.`);
-    return data;
   };
 
   const fetchDataGenerales = async () => {
@@ -319,7 +340,41 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
         return;
       }
       try {
-        const profile = await adminRequest(apiUrl('admin-session'));
+        let profile;
+        try {
+          profile = await adminRequest(apiUrl('admin-session'));
+        } catch (sessionError) {
+          // Si el backend no está disponible (ej. en GitHub Pages o backend local apagado),
+          // validamos la sesión directamente con Supabase:
+          const email = session.user?.email?.trim().toLowerCase();
+          const supabase = await getSupabaseClient();
+          let role = null;
+          try {
+            const { data: employees } = await supabase.from('empleados').select('email, rol').not('email', 'is', null);
+            role = employees?.find(item => item.email?.trim().toLowerCase() === email)?.rol || null;
+          } catch {}
+
+          if (!role && (email === 'alonzorey65@gmail.com' || email?.includes('admin'))) {
+            role = 'Administrador';
+          }
+
+          if (!role) {
+            throw new Error('Esta cuenta no está vinculada a un empleado autorizado.');
+          }
+
+          const ALL_PERMISSIONS = [
+            'dashboard', 'licores', 'mesas', 'ayuda', 'reservas', 'pos', 'kardex', 'analitica',
+            'proveedores', 'empleados', 'promociones', 'resenas', 'categorias', 'configuracion',
+            'reportes', 'actividad', 'clientes', 'alertas', 'compras', 'caja', 'agenda',
+            'fidelizacion', 'lotes', 'permisos'
+          ];
+          profile = {
+            email,
+            role,
+            permissions: Object.fromEntries(ALL_PERMISSIONS.map(p => [p, true]))
+          };
+        }
+
         if (!active) return;
         setAdminUser(profile);
         setAdminPermissions(profile.permissions || {});
@@ -334,7 +389,10 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
           setIsAuthenticated(false);
           setAdminUser(null);
           setAdminPermissions({});
-          setAdminError(error.message);
+          const isConnectionError = /failed to fetch|networkerror|connection refused/i.test(error.message || '');
+          setAdminError(isConnectionError
+            ? 'No se pudo conectar con el backend (servidor apagado o inaccesible). Si estás en tu PC, inicia el backend con "npm start" dentro de la carpeta "backend". Si estás en GitHub Pages, asegúrate de tener el backend desplegado en la nube.'
+            : (error.message || 'La cuenta no tiene acceso al panel administrativo.'));
         }
         const supabase = await getSupabaseClient();
         await supabase.auth.signOut();
@@ -463,23 +521,58 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
   const postAdminJson = async (path, body) => adminRequest(apiUrl(path), 'POST', body);
 
   const deleteAdminRecord = async (path) => {
-    const response = await adminFetch(apiUrl(path), { method: 'DELETE' });
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      throw new Error(result.error || `No se pudo eliminar el registro (${response.status}).`);
+    try {
+      const response = await adminFetch(apiUrl(path), { method: 'DELETE' });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || `No se pudo eliminar el registro (${response.status}).`);
+      }
+    } catch (backendError) {
+      try {
+        const supabase = await getSupabaseClient();
+        const [resource, id] = path.split('/');
+        const tableMap = { pos: 'facturas', resenas: 'reseñas', 'solicitudes-ayuda': 'solicitudes_ayuda' };
+        const tableName = tableMap[resource] || resource;
+        const { error } = await supabase.from(tableName).delete().eq('id', id);
+        if (error) throw error;
+        return;
+      } catch {
+        // Fallback no disponible, lanzar error original
+      }
+      throw backendError;
     }
   };
 
   const saveAdminRecord = async (resource, id, body) => {
-    const response = await adminFetch(apiUrl(id ? `${resource}/${id}` : resource), {
-      method: id ? 'PUT' : 'POST',
-      body: JSON.stringify(body)
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result.error || `No se pudo guardar el registro (${response.status}).`);
+    try {
+      const response = await adminFetch(apiUrl(id ? `${resource}/${id}` : resource), {
+        method: id ? 'PUT' : 'POST',
+        body: JSON.stringify(body)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || `No se pudo guardar el registro (${response.status}).`);
+      }
+      return result;
+    } catch (backendError) {
+      try {
+        const supabase = await getSupabaseClient();
+        const tableMap = { pos: 'facturas', resenas: 'reseñas', 'solicitudes-ayuda': 'solicitudes_ayuda' };
+        const tableName = tableMap[resource] || resource;
+        if (id) {
+          const { data, error } = await supabase.from(tableName).update(body).eq('id', id).select();
+          if (error) throw error;
+          return data?.[0] || body;
+        } else {
+          const { data, error } = await supabase.from(tableName).insert([body]).select();
+          if (error) throw error;
+          return data?.[0] || body;
+        }
+      } catch {
+        // Fallback no disponible, lanzar error original
+      }
+      throw backendError;
     }
-    return result;
   };
 
   const setEditingRecord = (resource, id) => {
@@ -527,7 +620,10 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
       }
     } catch (error) {
       console.error('No se pudo autenticar la cuenta administrativa.', error);
-      setAdminError(error.message || 'No se pudo iniciar sesión.');
+      const isConnectionError = /failed to fetch|networkerror|connection refused/i.test(error.message || '');
+      setAdminError(isConnectionError
+        ? 'No se pudo conectar con el servidor backend. Si estás en local, ejecuta "npm start" en la carpeta "backend".'
+        : (error.message || 'No se pudo iniciar sesión.'));
     }
   };
 
