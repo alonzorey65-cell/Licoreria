@@ -389,10 +389,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
           setIsAuthenticated(false);
           setAdminUser(null);
           setAdminPermissions({});
-          const isConnectionError = /failed to fetch|networkerror|connection refused/i.test(error.message || '');
-          setAdminError(isConnectionError
-            ? 'No se pudo conectar con el backend (servidor apagado o inaccesible). Si estás en tu PC, inicia el backend con "npm start" dentro de la carpeta "backend". Si estás en GitHub Pages, asegúrate de tener el backend desplegado en la nube.'
-            : (error.message || 'La cuenta no tiene acceso al panel administrativo.'));
+          setAdminError(error.message || 'La cuenta no tiene acceso al panel administrativo.');
         }
         const supabase = await getSupabaseClient();
         await supabase.auth.signOut();
@@ -620,10 +617,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
       }
     } catch (error) {
       console.error('No se pudo autenticar la cuenta administrativa.', error);
-      const isConnectionError = /failed to fetch|networkerror|connection refused/i.test(error.message || '');
-      setAdminError(isConnectionError
-        ? 'No se pudo conectar con el servidor backend. Si estás en local, ejecuta "npm start" en la carpeta "backend".'
-        : (error.message || 'No se pudo iniciar sesión.'));
+      setAdminError(error.message || 'No se pudo iniciar sesión.');
     }
   };
 
