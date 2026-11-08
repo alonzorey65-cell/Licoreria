@@ -241,10 +241,13 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
           if (error) throw error;
           if (Array.isArray(data)) return data;
         }
-      } catch {
-        // Fallback no disponible, lanzar error original
+      } catch (supabaseError) {
+        // Fallback de Supabase no disponible (ej. tabla con RLS bloqueada para anon)
+        console.warn(`No se pudo cargar "${path}" desde Supabase:`, supabaseError?.message || supabaseError);
       }
-      throw backendError;
+      // Retornar arreglo vacío en vez de relanzar el error, para no bloquear el panel
+      console.warn(`Usando arreglo vacío para "${path}" — ninguna fuente disponible.`);
+      return [];
     }
   };
 
@@ -260,8 +263,16 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
         ['pos', 'facturas', setFacturas],
         ['resenas', 'resenas', setResenas]
       ].filter(([permission]) => adminPermissions[permission]);
-      const results = await Promise.all(collections.map(([, resource]) => fetchCollection(resource)));
-      collections.forEach(([, , setter], index) => setter(results[index]));
+      // Usar allSettled para que una tabla con RLS bloqueada (ej. reservas) no rompa todo el panel
+      const results = await Promise.allSettled(collections.map(([, resource]) => fetchCollection(resource)));
+      collections.forEach(([, , setter], index) => {
+        if (results[index].status === 'fulfilled') {
+          setter(results[index].value);
+        } else {
+          console.warn('No se pudo cargar colección:', results[index].reason?.message);
+          setter([]);
+        }
+      });
       if (adminPermissions.clientes) {
         try {
           setClientProfiles(await fetchCollection('client-profiles'));
@@ -533,10 +544,13 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
         const { error } = await supabase.from(tableName).delete().eq('id', id);
         if (error) throw error;
         return;
-      } catch {
-        // Fallback no disponible, lanzar error original
+      } catch (supabaseError) {
+        // Fallback de Supabase no disponible (ej. tabla con RLS bloqueada para anon)
+        console.warn(`No se pudo cargar "${path}" desde Supabase:`, supabaseError?.message || supabaseError);
       }
-      throw backendError;
+      // Retornar arreglo vacío en vez de relanzar el error, para no bloquear el panel
+      console.warn(`Usando arreglo vacío para "${path}" — ninguna fuente disponible.`);
+      return [];
     }
   };
 
@@ -565,10 +579,13 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
           if (error) throw error;
           return data?.[0] || body;
         }
-      } catch {
-        // Fallback no disponible, lanzar error original
+      } catch (supabaseError) {
+        // Fallback de Supabase no disponible (ej. tabla con RLS bloqueada para anon)
+        console.warn(`No se pudo cargar "${path}" desde Supabase:`, supabaseError?.message || supabaseError);
       }
-      throw backendError;
+      // Retornar arreglo vacío en vez de relanzar el error, para no bloquear el panel
+      console.warn(`Usando arreglo vacío para "${path}" — ninguna fuente disponible.`);
+      return [];
     }
   };
 
