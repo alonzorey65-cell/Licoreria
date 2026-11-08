@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchLicoresAPI, fetchMesasAPI } from '../api/clientApi';
 import { getSupabaseClient } from '../api/supabaseClient';
+import { API_MISCONFIGURED } from '../api/apiConfig';
 
 export function useCatalogData() {
   const [licores, setLicores] = useState([]);
@@ -27,7 +28,9 @@ export function useCatalogData() {
       return true;
     } catch (error) {
       console.error('Error conectando con el backend', error);
-      setCatalogError(error.message || 'No pudimos actualizar el catálogo. Revisa tu conexión e inténtalo nuevamente.');
+      setCatalogError(API_MISCONFIGURED
+        ? 'El servidor de la tienda no está configurado (falta VITE_API_URL en el despliegue).'
+        : error.message || 'No pudimos actualizar el catálogo. Revisa tu conexión e inténtalo nuevamente.');
       initialLoadCompleted.current = true;
       setCatalogLoading(false);
       return false;
