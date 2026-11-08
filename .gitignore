@@ -20,5 +20,5 @@ backend/db.json
 # Archivos de configuración del IDE
 .vscode/
 
-migraciones de base de datos
+# Migraciones de base de datos
 backend/migrations/

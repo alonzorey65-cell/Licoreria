@@ -509,13 +509,14 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     setAdminError('');
+    const adminRedirectUrl = window.location.href.split('?')[0].split('#')[0];
     try {
       const supabase = await getSupabaseClient();
       const authResult = isRegistering
         ? await supabase.auth.signUp({
           email: loginEmail.trim(),
           password: passwordInput,
-          options: { emailRedirectTo: `${window.location.origin}/admin` }
+          options: { emailRedirectTo: adminRedirectUrl }
         })
         : await supabase.auth.signInWithPassword({ email: loginEmail.trim(), password: passwordInput });
       if (authResult.error) throw authResult.error;
@@ -535,12 +536,13 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
     setAdminError('');
     setAdminNotice('');
     setIsSendingConfirmation(true);
+    const adminRedirectUrl = window.location.href.split('?')[0].split('#')[0];
     try {
       const supabase = await getSupabaseClient();
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: loginEmail.trim(),
-        options: { emailRedirectTo: `${window.location.origin}/admin` }
+        options: { emailRedirectTo: adminRedirectUrl }
       });
       if (error) throw error;
       setAdminNotice('Si la cuenta necesita confirmación, enviaremos un nuevo enlace. Revisa tu correo y spam.');
@@ -559,10 +561,11 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
     setAdminError('');
     setAdminNotice('');
     setIsSendingPasswordReset(true);
+    const adminRedirectUrl = window.location.href.split('?')[0].split('#')[0];
     try {
       const supabase = await getSupabaseClient();
       const { error } = await supabase.auth.resetPasswordForEmail(loginEmail.trim(), {
-        redirectTo: `${window.location.origin}/admin`
+        redirectTo: adminRedirectUrl
       });
       if (error) throw error;
       setAdminNotice('Te enviamos un enlace para establecer una contraseña nueva. Revisa tu correo.');

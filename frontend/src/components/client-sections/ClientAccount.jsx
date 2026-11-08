@@ -155,7 +155,7 @@ export default function ClientAccount({ onSessionChange, currency = 'USD', local
       const client = await getSupabaseClient();
       const { error } = await client.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: window.location.origin }
+        options: { redirectTo: window.location.href.split('?')[0].split('#')[0] }
       });
       if (error) throw error;
     } catch (error) {
