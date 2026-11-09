@@ -119,6 +119,7 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
   const [offerCode, setOfferCode] = useState('');
   const [giftCardCode, setGiftCardCode] = useState('');
   const [appliedOffer, setAppliedOffer] = useState(null);
+  const [appliedCodes, setAppliedCodes] = useState(null);
   const [useRewardsCredit, setUseRewardsCredit] = useState(false);
   const [comparisonIds, setComparisonIds] = useState([]);
   const [shareFeedback, setShareFeedback] = useState('');
@@ -546,8 +547,8 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
           items: cart,
           fulfillmentMode,
           scheduledFor: reservationTime ? new Date(reservationTime).toISOString() : null,
-          promoCode: offerCode.trim(),
-          giftCardCode: giftCardCode.trim(),
+          promoCode: appliedCodes?.promoCode || offerCode.trim(),
+          giftCardCode: appliedCodes?.giftCardCode || giftCardCode.trim(),
           useRewardsCredit,
           currency: storePreferences.currency
         })
@@ -567,6 +568,10 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
       setOrderHistory(nextOrderHistory);
       setCart([]);
       setSelectedMesa('');
+      setOfferCode('');
+      setGiftCardCode('');
+      setAppliedOffer(null);
+      setAppliedCodes(null);
       setCheckoutFeedback({ type: 'success', message: '¡Pedido confirmado! Conserva esta página para consultar tu reserva.' });
       if (!await fetchAll()) {
         setCheckoutFeedback({ type: 'success', message: '¡Pedido confirmado! No pudimos actualizar el catálogo; vuelve a cargar la página para ver los últimos datos.' });
@@ -639,6 +644,7 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
     }
   };
   const applyOffers = async () => {
+    const codes = { promoCode: offerCode.trim(), giftCardCode: giftCardCode.trim() };
     try {
       if (cart.some(item => item.type === 'promotion') && storePreferences.currency !== 'PEN') {
         throw new Error('Las promociones se cobran en soles. Cambia la moneda a PEN antes de validar códigos.');
@@ -646,17 +652,32 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
       const response = await fetch(apiUrl('ofertas/validar'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ promoCode: offerCode.trim(), giftCardCode: giftCardCode.trim(), total: totalCart, currency: storePreferences.currency })
+        body: JSON.stringify({ ...codes, total: totalCart, currency: storePreferences.currency })
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'No se pudieron validar los códigos.');
       setAppliedOffer(result);
+      setAppliedCodes(codes);
+      setOfferCode('');
+      setGiftCardCode('');
       setCheckoutFeedback({ type: 'success', message: 'Los códigos se validaron. El descuento final se confirmará al procesar el pedido.' });
     } catch (error) {
       console.error('No se pudieron validar los códigos promocionales.', error);
       setAppliedOffer(null);
+      setAppliedCodes(null);
       setCheckoutFeedback({ type: 'error', message: error.message });
     }
+  };
+
+  const updateOfferCode = value => {
+    setOfferCode(value);
+    setAppliedOffer(null);
+    setAppliedCodes(null);
+  };
+  const updateGiftCardCode = value => {
+    setGiftCardCode(value);
+    setAppliedOffer(null);
+    setAppliedCodes(null);
   };
 
   const checkoutPanel = (
@@ -664,7 +685,11 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
       cart={cart}
       addToCart={addToCart}
       removeFromCart={removeFromCart}
-      onClearCart={() => setCart([])}
+      onClearCart={() => {
+        setCart([]);
+        setAppliedOffer(null);
+        setAppliedCodes(null);
+      }}
       totalCart={totalCart}
       clientName={clientName}
       setClientName={setClientName}
@@ -678,9 +703,9 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
       locale={storePreferences.locale}
       formatMoney={money}
       offerCode={offerCode}
-      setOfferCode={setOfferCode}
+      setOfferCode={updateOfferCode}
       giftCardCode={giftCardCode}
-      setGiftCardCode={setGiftCardCode}
+      setGiftCardCode={updateGiftCardCode}
       appliedOffer={appliedOffer}
       applyOffers={applyOffers}
       useRewardsCredit={useRewardsCredit}
