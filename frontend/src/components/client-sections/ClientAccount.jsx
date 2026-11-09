@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiUrl } from '../../api/apiConfig';
 import { getSupabaseClient, hasVerifiedCustomerIdentity } from '../../api/supabaseClient';
+import { googleSignInOptions } from '../../api/googleSignIn';
 
 async function loadClientData(accessToken) {
   const rewardsResponse = await fetch(apiUrl('client/rewards'), { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -64,10 +65,14 @@ export default function ClientAccount({ onSessionChange, currency = 'USD', local
         if (active && hasVerifiedCustomerIdentity(data.session?.user)) {
           setSession(data.session);
           onSessionChange?.(data.session);
-          return Promise.all([refreshAccount(data.session), loadProfile(client, data.session)]);
+          Promise.all([refreshAccount(data.session), loadProfile(client, data.session)]).catch(error => {
+            console.error('No se pudo actualizar el perfil o la cuenta del cliente.', error);
+            if (active) setFeedback({ type: 'error', message: error.message });
+          });
         }
         return undefined;
       }).then(() => {
+        if (!active) return;
         const { data } = client.auth.onAuthStateChange((_event, nextSession) => {
           if (active) {
             const verifiedSession = hasVerifiedCustomerIdentity(nextSession?.user) ? nextSession : null;
@@ -153,10 +158,7 @@ export default function ClientAccount({ onSessionChange, currency = 'USD', local
     setFeedback(null);
     try {
       const client = await getSupabaseClient();
-      const { error } = await client.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: window.location.href.split('?')[0].split('#')[0] }
-      });
+      const { error } = await client.auth.signInWithOAuth(googleSignInOptions(window.location));
       if (error) throw error;
     } catch (error) {
       console.error('No se pudo iniciar el acceso del cliente con Google.', error);
@@ -219,7 +221,7 @@ export default function ClientAccount({ onSessionChange, currency = 'USD', local
       </div>
       {!session ? (
         <div className="client-account-form">
-          <p className="client-panel-note">{english ? 'Sign in with Google to place orders and see only the order history linked to your account.' : 'Inicia sesión con Google para hacer pedidos y consultar únicamente el historial asociado a tu cuenta.'}</p>
+          <p className="client-panel-note">{english ? 'Choose a Google account to place orders and see only its order history.' : 'Elige una cuenta de Google para hacer pedidos y consultar únicamente el historial asociado a ella.'}</p>
           <button type="button" className="checkout-button" onClick={signInWithGoogle} disabled={busy}>
             {busy ? (english ? 'Connecting…' : 'Conectando…') : (english ? 'Continue with Google' : 'Continuar con Google')}
           </button>
@@ -256,7 +258,7 @@ export default function ClientAccount({ onSessionChange, currency = 'USD', local
           <p className="client-panel-note">{english ? 'Earn 1 point per currency unit on delivered orders. Every 100 points equal 1 unit of credit.' : 'Ganas 1 punto por cada unidad monetaria en pedidos entregados. Cada 100 puntos equivalen a 1 de crédito.'}</p>
           <div className="client-account-actions">
             <button type="button" className="checkout-button" onClick={redeemPoints} disabled={busy || Number(rewards.points) < 100}>{english ? 'Redeem available points' : 'Canjear puntos disponibles'}</button>
-            <button type="button" className="client-text-link" onClick={signOut}>{english ? 'Sign out' : 'Cerrar sesión'}</button>
+            <button type="button" className="client-text-link" onClick={signOut}>{english ? 'Sign out or change account' : 'Cerrar sesión o cambiar de cuenta'}</button>
           </div>
         </div>
       )}

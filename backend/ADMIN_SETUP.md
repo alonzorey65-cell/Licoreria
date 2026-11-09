@@ -58,6 +58,11 @@ Customer checkout uses **Continue with Google**. Configure it once in the same S
 3. In Supabase **Authentication → URL Configuration**, set the app's site URL and add each frontend origin to the redirect allow list (for local Vite development, `http://localhost:5173`; also add the production URL when deployed).
 4. Save the settings and restart/reload the frontend. SMS/Phone Auth and Twilio are not required for Google sign-in.
 
+The customer account screen requests Google's account chooser at sign-in. To
+switch accounts, first use **Cerrar sesión o cambiar de cuenta**, then sign in
+again and choose the other Google account. Provider configuration and redirect
+allow-list errors must still be corrected in Google Cloud and Supabase.
+
 Customer checkout requires a verified Google identity (or an existing verified phone session) and `SUPABASE_SERVICE_ROLE_KEY` on the backend. Orders are associated with the authenticated Supabase user; the API, tracker, and database row-level security only return that user's orders. The app removes the previous shared-device local order history. Older orders without `client_user_id` cannot be attributed safely and will not appear in customer accounts.
 
 The customer-profile migration creates the private `customer-avatars` Storage bucket. Customers can update their profile name and upload a JPG, PNG, or WebP avatar up to 3 MB from **Mi cuenta**. Storage policies limit each signed-in customer to files under their own user ID. The admin **Clientes** page and **Ventas y caja** show profile details only for customers with account-linked orders; those profile images use short-lived signed URLs.
