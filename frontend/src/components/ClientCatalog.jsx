@@ -22,6 +22,7 @@ import { useBusinessSettings } from '../hooks/BusinessSettingsContext';
 const FAVORITES_KEY = 'clientFavoriteProducts';
 const CLIENT_THEME_KEY = 'clientTheme';
 const CLIENT_CART_KEY = 'clientCart';
+const GUEST_CART_KEY = 'clientGuestCart';
 const CLIENT_ACCESSIBILITY_KEY = 'clientAccessibility';
 
 function getStorePreferences() {
@@ -55,6 +56,16 @@ function getSavedCart(userId) {
     return Array.isArray(savedCart) ? savedCart.filter(item => item && item.id && Number(item.qty) > 0) : [];
   } catch (error) {
     console.error('No se pudo recuperar el carrito guardado.', error);
+    return [];
+  }
+}
+
+function getGuestCart() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(GUEST_CART_KEY) || '[]');
+    return Array.isArray(saved) ? saved.filter(item => item && item.id && Number(item.qty) > 0) : [];
+  } catch (error) {
+    console.error('No se pudo recuperar el carrito de esta pestaña.', error);
     return [];
   }
 }
@@ -96,7 +107,7 @@ function getCustomerProfileName(user) {
 }
 
 export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading = false, catalogError = '' }) {
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(getGuestCart);
   const [clientName, setClientName] = useState('');
   const [clientContact, setClientContact] = useState('');
   const [savedPreferences, setStorePreferences] = useState(getStorePreferences);
@@ -168,7 +179,16 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
       if (changedCustomer) clearCustomerData(true);
       if (clientUserId.current !== userId) {
         const savedCart = getSavedCart(userId);
-        if (savedCart) setCart(savedCart);
+        if (savedCart) setCart(current => {
+          if (changedCustomer || current.length === 0) return savedCart;
+          const merged = [...savedCart];
+          for (const item of current) {
+            const index = merged.findIndex(entry => String(entry.id) === String(item.id) && (entry.type === 'promotion') === (item.type === 'promotion'));
+            if (index < 0) merged.push(item);
+            else merged[index] = { ...item, qty: Math.min(Number(merged[index].qty) + Number(item.qty), Number(item.stock) || 0, 50) };
+          }
+          return merged.filter(item => item.qty > 0);
+        });
         else if (changedCustomer) setCart([]);
       }
       clientUserId.current = userId;
@@ -272,6 +292,15 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
 
   useEffect(() => {
     try {
+      if (clientSession?.user?.id) sessionStorage.removeItem(GUEST_CART_KEY);
+      else sessionStorage.setItem(GUEST_CART_KEY, JSON.stringify(cart));
+    } catch (error) {
+      console.error('No se pudo guardar el carrito de esta pestaña.', error);
+    }
+  }, [cart, clientSession?.user?.id]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem('clientStorePreferences', JSON.stringify(savedPreferences));
     } catch (error) {
       console.error('No se pudieron guardar las preferencias de idioma y moneda.', error);
@@ -315,6 +344,7 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
   useEffect(() => {
     if (!licores.length) return;
     setCart(current => current.reduce((items, item) => {
+      if (item.type === 'promotion') return [...items, item];
       const currentProduct = licores.find(product => String(product.id) === String(item.id));
       const quantity = Math.min(Number(item.qty) || 0, Number(currentProduct?.stock) || 0);
       if (!currentProduct || quantity < 1) return items;
@@ -411,20 +441,35 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
       return;
     }
     setCart(current => {
-      const exist = current.find(item => item.id === licor.id);
+      const exist = current.find(item => item.id === licor.id && (item.type === 'promotion') === (licor.type === 'promotion'));
       if (exist?.qty >= licor.stock) return current;
-      if (exist) return current.map(item => item.id === licor.id ? { ...item, qty: item.qty + 1 } : item);
+      if (exist) return current.map(item => item === exist ? { ...item, qty: item.qty + 1 } : item);
       return [...current, { ...licor, qty: 1 }];
     });
   };
 
-  const removeFromCart = (id) => {
+  const removeFromCart = (id, type) => {
     setCart(current => {
-      const exist = current.find(item => item.id === id);
+      const exist = current.find(item => item.id === id && (item.type === 'promotion') === (type === 'promotion'));
       if (!exist) return current;
-      if (exist.qty === 1) return current.filter(item => item.id !== id);
-      return current.map(item => item.id === id ? { ...item, qty: item.qty - 1 } : item);
+      if (exist.qty === 1) return current.filter(item => item !== exist);
+      return current.map(item => item === exist ? { ...item, qty: item.qty - 1 } : item);
     });
+  };
+
+  const addPromotion = promo => {
+    if (promo.precio == null || Number(promo.stock) <= 0) return;
+    const item = { type: 'promotion', id: promo.id, name: promo.titulo, price: Number(promo.precio), stock: Number(promo.stock) };
+    setCart(current => {
+      const existing = current.find(entry => entry.type === 'promotion' && String(entry.id) === String(item.id));
+      if (existing) {
+        return current.map(entry => entry === existing ? { ...item, qty: Math.min(existing.qty + 1, item.stock, 50) } : entry);
+      }
+      return [...current, { ...item, qty: 1 }];
+    });
+    setAppliedOffer(null);
+    setCheckoutFeedback({ type: 'success', message: `Promoción "${promo.titulo}" agregada al pedido. El precio y stock se confirman al finalizar.` });
+    navigateToView('order');
   };
 
   const totalCart = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -449,12 +494,17 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
     }
 
     const unavailableItem = cart.find(item => {
+      if (item.type === 'promotion') return false;
       const currentProduct = licores.find(product => product.id === item.id);
       return !currentProduct || Number(currentProduct.stock) < item.qty;
     });
     if (unavailableItem) {
       setCheckoutFeedback({ type: 'error', message: `${unavailableItem.name} ya no tiene suficiente stock. Revisa tu carrito.` });
       await fetchAll();
+      return;
+    }
+    if (cart.some(item => item.type === 'promotion') && storePreferences.currency !== 'PEN') {
+      setCheckoutFeedback({ type: 'error', message: 'Las promociones se cobran en soles. Cambia la moneda a PEN antes de confirmar.' });
       return;
     }
 
@@ -550,7 +600,7 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
   });
   const recommendedCategory = cart[0]?.category || (selectedCategory !== 'Todos' ? selectedCategory : null);
   const recommendedBrand = cart[0]?.brand || cart[0]?.marca;
-  const cartIds = new Set(cart.map(item => String(item.id)));
+  const cartIds = new Set(cart.filter(item => item.type !== 'promotion').map(item => String(item.id)));
   const recommendations = recommendedCategory || recommendedBrand
     ? licores.filter(product => {
       const sameBrand = recommendedBrand && String(product.brand || product.marca || '') === String(recommendedBrand);
@@ -570,6 +620,10 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
   const comparisonProducts = licores.filter(product => comparisonIds.includes(String(product.id)));
   const shareOrderList = async () => {
     if (!cart.length) return;
+    if (cart.some(item => item.type === 'promotion')) {
+      setShareFeedback('No se pueden compartir listas que contienen promociones. Compártelas desde la sección Promociones.');
+      return;
+    }
     const url = new URL(window.location.href);
     url.searchParams.set('lista', cart.map(item => `${item.id}:${item.qty}`).join(','));
     url.hash = 'catalog';
@@ -586,6 +640,9 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
   };
   const applyOffers = async () => {
     try {
+      if (cart.some(item => item.type === 'promotion') && storePreferences.currency !== 'PEN') {
+        throw new Error('Las promociones se cobran en soles. Cambia la moneda a PEN antes de validar códigos.');
+      }
       const response = await fetch(apiUrl('ofertas/validar'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -805,7 +862,7 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
 
             {activeView === 'promos' && (
               <div className="client-view-content">
-                <ClientPromos products={licores} onProductSelect={openProductFromPromotion} locale={storePreferences.locale} />
+                <ClientPromos products={licores} onProductSelect={openProductFromPromotion} onAddPromotion={addPromotion} locale={storePreferences.locale} />
                 <button className="checkout-button client-view-cta" type="button" onClick={() => navigateToView('catalog')}>
                   Explorar la carta <span aria-hidden="true">↗</span>
                 </button>
@@ -891,6 +948,7 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
                   if (updatedOrder.status === 'Cancelado') setActiveOrder(updatedOrder);
                 }} onRepeatOrder={order => {
                   const repeatItems = (Array.isArray(order.items) ? order.items : []).reduce((items, item) => {
+                    if (item.type === 'promotion') return items;
                     const product = licores.find(current => String(current.id) === String(item.id));
                     if (!product || Number(product.stock) < 1) return items;
                     return [...items, { ...product, qty: Math.min(Number(item.qty) || 1, Number(product.stock) || 0) }];
@@ -938,7 +996,7 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
       {itemCount > 0 && (
         <button className="mobile-cart-dock" type="button" onClick={() => navigateToView('order')} aria-label="Abrir mi pedido">
           <span>{itemCount} {itemCount === 1 ? 'producto' : 'productos'}</span>
-          <strong>Ver pedido · ${Number(totalCart).toFixed(2)}</strong>
+          <strong>{cart.some(item => item.type === 'promotion') && storePreferences.currency !== 'PEN' ? 'Ver pedido · Selecciona PEN' : `Ver pedido · ${money(totalCart)}`}</strong>
           <span aria-hidden="true">↑</span>
         </button>
       )}

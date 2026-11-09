@@ -112,7 +112,7 @@ export default function ClientProductGrid({
     <>
       <div className={`product-grid ${className}`}>
         {filteredLicores.map(licor => {
-          const quantityInCart = cart.find(item => item.id === licor.id)?.qty || 0;
+          const quantityInCart = cart.find(item => item.type !== 'promotion' && item.id === licor.id)?.qty || 0;
           const limitReached = quantityInCart >= licor.stock;
           return (
             <article className="product-card" key={licor.id}>

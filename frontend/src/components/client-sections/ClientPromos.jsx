@@ -18,7 +18,7 @@ function getRelatedProduct(promo, products) {
   return products.find(product => product.name && text.includes(product.name.toLocaleLowerCase('es')));
 }
 
-export default function ClientPromos({ products = [], onProductSelect, locale = 'es' }) {
+export default function ClientPromos({ products = [], onProductSelect, onAddPromotion, locale = 'es' }) {
   const english = locale === 'en';
   const [promos, setPromos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -129,9 +129,13 @@ export default function ClientPromos({ products = [], onProductSelect, locale = 
                 <p>{promo.descuento}</p>
                 {promo.precio != null && <>
                   <strong>{english ? 'Promotion price' : 'Precio de la promoción'}: {new Intl.NumberFormat(english ? 'en-US' : 'es-PE', { style: 'currency', currency: 'PEN' }).format(Number(promo.precio))}</strong>
-                  <small>{english ? 'Informational price; not applied automatically to the cart.' : 'Precio informativo; no se aplica automáticamente al carrito.'}</small>
+                  <small>{english ? 'Available' : 'Disponibles'}: {promo.stock ?? 0}</small>
+                  <button className="promotion-product-link" type="button" disabled={Number(promo.stock) <= 0} onClick={() => onAddPromotion?.(promo)}>
+                    {Number(promo.stock) > 0 ? (english ? 'Add promotion to order' : 'Agregar promoción al pedido') : (english ? 'Sold out' : 'Agotada')}
+                  </button>
                 </>}
-                {expiration && !Number.isNaN(expiration.getTime()) && <small className="promotion-expiration">{english ? 'Valid until' : 'Válida hasta'} {new Intl.DateTimeFormat(english ? 'en-US' : 'es', { dateStyle: 'medium' }).format(expiration)}</small>}
+                {promo.precio == null && <small>{english ? 'Ask the store for details.' : 'Consulta los detalles en el local.'}</small>}
+                {expiration && !Number.isNaN(expiration.getTime()) && <small className="promotion-expiration">{english ? 'Valid until' : 'Válida hasta'} {new Intl.DateTimeFormat(english ? 'en-US' : 'es', { dateStyle: 'medium', timeZone: 'America/Lima' }).format(expiration)}</small>}
                 {relatedProduct && <button className="promotion-product-link" type="button" onClick={() => onProductSelect?.(relatedProduct)}>{english ? 'View' : 'Ver'} {relatedProduct.name} ↗</button>}
               </div>
               <span className="promotion-mark" aria-hidden="true">✦</span>

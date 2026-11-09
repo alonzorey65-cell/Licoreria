@@ -128,9 +128,9 @@ export default function ClientOrderHistory({ orders, onSelectOrder, onRepeatOrde
                 </button>
                 <button type="button" className="client-order-reopen" onClick={() => printReceipt(order)}>{english ? 'Print receipt' : 'Imprimir comprobante'}</button>
                 {order.status === 'Recibido' && order.tracking_token && <>
-                  <button type="button" className="client-order-reopen" onClick={() => { setEditingOrderId(order.id); setEditItems((order.items || []).map(item => ({ id: item.id, qty: Number(item.qty) }))); }}>
+                  {!order.items?.some(item => item.type === 'promotion') && <button type="button" className="client-order-reopen" onClick={() => { setEditingOrderId(order.id); setEditItems((order.items || []).map(item => ({ id: item.id, qty: Number(item.qty) }))); }}>
                     {english ? 'Edit order' : 'Modificar pedido'}
-                  </button>
+                  </button>}
                   <button type="button" className="client-order-reopen is-danger" disabled={busyOrderId === order.id} onClick={() => cancelOrder(order)}>
                     {english ? 'Cancel order' : 'Cancelar pedido'}
                   </button>

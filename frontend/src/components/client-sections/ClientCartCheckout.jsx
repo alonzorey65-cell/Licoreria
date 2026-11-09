@@ -13,6 +13,7 @@ export default function ClientCartCheckout({
 }) {
   const english = locale === 'en';
   const itemCount = cart.reduce((total, item) => total + item.qty, 0);
+  const currencyMismatch = cart.some(item => item.type === 'promotion') && currency !== 'PEN';
   const availableMesas = mesas.filter(mesa => mesa.status === 'Disponible');
   const minSchedule = new Date(Date.now() + 15 * 60 * 1000).toISOString().slice(0, 16);
   const checkoutBlockReason = !isClientAuthenticated
@@ -52,19 +53,19 @@ export default function ClientCartCheckout({
       ) : (
         <div className="cart-items">
           {cart.map(item => (
-            <div className="cart-item" key={item.id}>
+            <div className="cart-item" key={`${item.type || 'product'}-${item.id}`}>
               <div className="cart-item-copy">
                 <strong>{item.name}</strong>
-                <span>${Number(item.price).toFixed(2)} c/u</span>
-                <small>Subtotal · ${(Number(item.price) * item.qty).toFixed(2)}</small>
+                <span>{formatMoney(item.price, item.type === 'promotion' ? 'PEN' : currency)} c/u {item.type === 'promotion' ? '· Promoción' : ''}</span>
+                <small>Subtotal · {formatMoney(Number(item.price) * item.qty, item.type === 'promotion' ? 'PEN' : currency)}</small>
               </div>
               <div className="cart-quantity">
-                <button type="button" onClick={() => removeFromCart(item.id)} aria-label={`Quitar una unidad de ${item.name}`}>−</button>
+                <button type="button" onClick={() => removeFromCart(item.id, item.type)} aria-label={`Quitar una unidad de ${item.name}`}>−</button>
                 <span>{item.qty}</span>
                 <button
                   type="button"
                   onClick={() => addToCart(item)}
-                  disabled={item.qty >= item.stock}
+                  disabled={item.qty >= item.stock || item.qty >= 50}
                   aria-label={`Agregar una unidad de ${item.name}`}
                 >+</button>
               </div>
@@ -72,8 +73,9 @@ export default function ClientCartCheckout({
           ))}
           <div className="cart-total">
             <span>{english ? 'Total' : 'Total'}</span>
-            <strong>{formatMoney(totalCart)}</strong>
+            <strong>{currencyMismatch ? (english ? 'Select PEN' : 'Selecciona PEN') : formatMoney(totalCart)}</strong>
           </div>
+          {currencyMismatch && <p className="checkout-note is-alert">{english ? 'Promotions are priced in soles. Select PEN before confirming.' : 'Las promociones se cobran en soles. Selecciona PEN antes de confirmar el pedido.'}</p>}
         </div>
       )}
 
@@ -150,7 +152,7 @@ export default function ClientCartCheckout({
           </p>
         )}
         {checkoutBlockReason && <p className="checkout-blocked-note" role="status">{checkoutBlockReason}</p>}
-        <button className="checkout-button checkout-submit-button" type="submit" disabled={!isClientAuthenticated || isSubmitting || cart.length === 0 || (fulfillmentMode === 'dine_in' && availableMesas.length === 0)}>
+        <button className="checkout-button checkout-submit-button" type="submit" disabled={!isClientAuthenticated || isSubmitting || currencyMismatch || cart.length === 0 || (fulfillmentMode === 'dine_in' && availableMesas.length === 0)}>
           {isSubmitting ? (english ? 'Sending order…' : 'Enviando pedido…') : !isClientAuthenticated ? (english ? 'Sign in to confirm' : 'Inicia sesión para confirmar') : fulfillmentMode === 'pickup' ? (english ? 'Confirm pickup order' : 'Confirmar para recoger') : availableMesas.length === 0 ? (english ? 'No tables available' : 'Sin mesas disponibles') : (english ? 'Place order' : 'Confirmar pedido')} <span aria-hidden="true">↗</span>
         </button>
         <p className="checkout-note">{english ? 'For adults only. Please enjoy responsibly.' : 'Pedido en mesa, sin costo de envío. Venta exclusiva para mayores de edad; disfruta con responsabilidad.'}</p>

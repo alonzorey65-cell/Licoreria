@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import { parseOffer } from './src/offerValidation.js';
 import { formatBusinessSettings, parseBusinessSettings } from './src/businessSettings.js';
 import { parsePromotionPrice } from './src/promotionPrice.js';
+import { parsePromotionStock, validatePromotionItem } from './src/promotionOrder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -541,19 +542,22 @@ app.post('/api/reservas', async (req, res) => {
             }
         }
 
-        const requestedIds = [...new Set(items.map(item => String(item?.id || '')))];
         if (items.some(item => !item || !Number.isInteger(Number(item.id)) || Number(item.id) <= 0
+            || (item.type !== undefined && item.type !== 'promotion' && item.type !== 'product')
             || !Number.isInteger(Number(item.qty)) || Number(item.qty) < 1 || Number(item.qty) > 50)) {
             return res.status(400).json({ error: 'Revisa las cantidades de los productos.' });
         }
-        const { data: products, error: productsError } = await supabase
+        const productItems = items.filter(item => item.type !== 'promotion');
+        const promotionItems = items.filter(item => item.type === 'promotion');
+        const requestedIds = [...new Set(productItems.map(item => String(item.id)))];
+        const { data: products, error: productsError } = requestedIds.length ? await supabase
             .from('licores')
             .select('id,name,price,stock')
-            .in('id', requestedIds);
+            .in('id', requestedIds) : { data: [], error: null };
         if (productsError) throw productsError;
         const productsById = new Map((products || []).map(product => [String(product.id), product]));
         if (productsById.size !== requestedIds.length) return res.status(400).json({ error: 'Uno o más productos ya no existen.' });
-        const verifiedItems = items.map(item => {
+        const verifiedItems = productItems.map(item => {
             const product = productsById.get(String(item.id));
             return { id: product.id, name: product.name, price: Number(product.price), qty: Number(item.qty) };
         });
@@ -563,11 +567,30 @@ app.post('/api/reservas', async (req, res) => {
         }, new Map());
         const unavailable = [...quantityById.entries()].find(([id, quantity]) => Number(productsById.get(id).stock) < quantity);
         if (unavailable) return res.status(409).json({ error: `${productsById.get(unavailable[0]).name} ya no tiene suficiente stock.` });
-        const total = verifiedItems.reduce((sum, item) => sum + item.price * item.qty, 0);
         const currency = String(req.body.currency || 'USD').toUpperCase();
         if (!['USD', 'MXN', 'COP', 'PEN', 'EUR'].includes(currency)) {
             return res.status(400).json({ error: 'La moneda seleccionada no es válida.' });
         }
+        if (promotionItems.length) {
+            if (currency !== 'PEN') return res.status(400).json({ error: 'Las promociones se cobran en soles. Selecciona PEN para continuar.' });
+            const ids = [...new Set(promotionItems.map(item => String(item.id)))];
+            const { data: promos, error: promoError } = await supabase.from('promociones')
+                .select('id,titulo,precio,stock,activa,vigente_hasta').in('id', ids);
+            if (promoError) throw promoError;
+            const byId = new Map((promos || []).map(promo => [String(promo.id), promo]));
+            const quantities = new Map();
+            for (const item of promotionItems) quantities.set(String(item.id), (quantities.get(String(item.id)) || 0) + Number(item.qty));
+            const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+            try {
+                for (const item of promotionItems) {
+                    validatePromotionItem({ ...item, qty: quantities.get(String(item.id)) }, byId.get(String(item.id)), today);
+                    verifiedItems.push(validatePromotionItem(item, byId.get(String(item.id)), today));
+                }
+            } catch (error) {
+                return res.status(409).json({ error: error.message });
+            }
+        }
+        const total = verifiedItems.reduce((sum, item) => sum + item.price * item.qty, 0);
         const useRewardsCredit = req.body.useRewardsCredit === true;
         if (useRewardsCredit && !clientUser) {
             return res.status(401).json({ error: 'Inicia sesión para usar el crédito de recompensas.' });
@@ -602,6 +625,7 @@ app.post('/api/reservas', async (req, res) => {
             currency
         };
         const { data, error } = await supabase.from('reservas').insert([nuevaReserva]).select();
+        if (error?.code === 'P0001') return res.status(409).json({ error: error.message });
         if (error) throw error;
         let discountClaims;
         try {
@@ -892,6 +916,9 @@ app.patch('/api/reservas/cliente', async (req, res) => {
 
         const update = {};
         if (Array.isArray(body.items)) {
+            if (Array.isArray(reservation.items) && reservation.items.some(item => item.type === 'promotion')) {
+                return res.status(409).json({ error: 'Este pedido contiene promociones. Cancélalo y crea uno nuevo para cambiar sus productos.' });
+            }
             if (Number(reservation.discount_amount) > 0) {
                 return res.status(409).json({ error: 'Este pedido tiene un descuento aplicado. Cancélalo y crea uno nuevo para cambiar sus productos.' });
             }
@@ -1253,8 +1280,8 @@ app.post('/api/promociones', parseImageUpload, async (req, res) => {
         return res.status(400).json({ error: 'El título es obligatorio (máximo 120 caracteres) y el detalle debe tener hasta 500 caracteres.' });
     }
 
-    let precio;
-    try { precio = parsePromotionPrice(req.body.precio); }
+    let precio, stock;
+    try { precio = parsePromotionPrice(req.body.precio); stock = parsePromotionStock(req.body.stock); }
     catch (error) { return res.status(400).json({ error: error.message }); }
     try {
         const promo = {
@@ -1265,6 +1292,7 @@ app.post('/api/promociones', parseImageUpload, async (req, res) => {
             activa: req.body.activa !== 'false'
         };
         if (precio !== undefined) promo.precio = precio;
+        if (stock !== undefined) promo.stock = stock;
         if (req.file) promo.imagen = `/uploads/${req.file.filename}`;
         const { data, error } = await supabase.from('promociones').insert([promo]).select().single();
         if (error) throw error;
@@ -1280,8 +1308,13 @@ app.put('/api/promociones/:id', parseImageUpload, async (req, res) => {
         return res.status(400).json({ error: 'El título es obligatorio (máximo 120 caracteres) y el detalle debe tener hasta 500 caracteres.' });
     }
 
-    let precio;
-    try { precio = parsePromotionPrice(req.body.precio); }
+    let precio, stock, expectedStock;
+    try {
+        precio = parsePromotionPrice(req.body.precio);
+        stock = parsePromotionStock(req.body.stock);
+        expectedStock = parsePromotionStock(req.body.expectedStock);
+        if (stock !== undefined && expectedStock === undefined) throw new Error('Actualiza la lista antes de editar el stock.');
+    }
     catch (error) { return res.status(400).json({ error: error.message }); }
     try {
         const promo = {
@@ -1292,16 +1325,17 @@ app.put('/api/promociones/:id', parseImageUpload, async (req, res) => {
             activa: req.body.activa !== 'false'
         };
         if (precio !== undefined) promo.precio = precio;
+        if (stock !== undefined) promo.stock = stock;
         if (req.file) promo.imagen = `/uploads/${req.file.filename}`;
         else if (req.body.removeImage === 'true') promo.imagen = null;
-        const { data, error } = await supabase
+        let query = supabase
             .from('promociones')
             .update(promo)
-            .eq('id', req.params.id)
-            .select()
-            .maybeSingle();
+            .eq('id', req.params.id);
+        if (stock !== undefined) query = query.eq('stock', expectedStock);
+        const { data, error } = await query.select().maybeSingle();
         if (error) throw error;
-        if (!data) return res.status(404).json({ error: 'No se encontró la promoción que se quiere actualizar.' });
+        if (!data) return res.status(409).json({ error: 'La promoción o su stock cambiaron. Actualiza la lista y vuelve a editar.' });
         return res.json(data);
     } catch (error) {
         return res.status(500).json({ error: error.message });
@@ -1737,6 +1771,7 @@ app.put('/api/:resource/:id', async (req, res) => {
             .eq('id', req.params.id)
             .select()
             .maybeSingle();
+        if (error?.code === 'P0001') return res.status(409).json({ error: error.message });
         if (error) return res.status(500).json({ error: error.message });
         if (!data) return res.status(404).json({ error: 'No se encontró el registro que se quiere actualizar.' });
         return res.json(data);
@@ -1756,6 +1791,10 @@ app.delete('/api/:resource/:id', async (req, res) => {
             .eq('id', req.params.id)
             .select('id')
             .maybeSingle();
+        if (error?.code === 'P0001') return res.status(409).json({ error: error.message });
+        if (resource.table === 'promociones' && error?.code === '23503') {
+            return res.status(409).json({ error: 'Esta promoción está asociada a pedidos y no se puede eliminar. Desactívala para conservar el historial.' });
+        }
         if (error) return res.status(500).json({ error: error.message });
         if (!data) return res.status(404).json({ error: 'No se encontró el registro que se quiere eliminar.' });
         return res.json({ success: true });

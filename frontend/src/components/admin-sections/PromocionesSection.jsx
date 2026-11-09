@@ -190,7 +190,8 @@ function OfferCodesManager({ currency = 'PEN' }) {
 }
 
 export default function PromocionesSection({
-  promoTitulo, setPromoTitulo, promoDesc, setPromoDesc, promoPrecio, setPromoPrecio, currency = 'PEN',
+  promoTitulo, setPromoTitulo, promoDesc, setPromoDesc, promoPrecio, setPromoPrecio,
+  promoStock, setPromoStock, setPromoExpectedStock, currency = 'PEN',
   promoVigenteHasta, setPromoVigenteHasta, promoLicorId, setPromoLicorId,
   promoActiva, setPromoActiva, licores = [],
   promoImageFile, setPromoImageFile, promoImageUrl, setPromoImageUrl,
@@ -215,6 +216,8 @@ export default function PromocionesSection({
     setPromoTitulo('');
     setPromoDesc('');
     setPromoPrecio('');
+    setPromoStock('0');
+    setPromoExpectedStock(null);
     setPromoVigenteHasta('');
     setPromoLicorId('');
     setPromoActiva(true);
@@ -229,7 +232,8 @@ export default function PromocionesSection({
       <form onSubmit={handlePromoSubmit} className="form-grid-pro admin-crud-form">
         <label>Título<input type="text" placeholder="Ej. Happy hour de tequila" value={promoTitulo} onChange={event => setPromoTitulo(event.target.value)} required /></label>
         <label>Detalle de la promoción<input type="text" placeholder="Ej. 2x1 de 8 a 10 p. m." value={promoDesc} onChange={event => setPromoDesc(event.target.value)} required /></label>
-        <label>Precio de la promoción (S/)<input type="number" placeholder="Ej. 140.00" value={promoPrecio} onChange={event => setPromoPrecio(event.target.value)} min="0" max="9999999999.99" step="0.01" /><small>Opcional. Se muestra en soles; todavía no se aplica al carrito.</small></label>
+        <label>Precio de la promoción (S/)<input type="number" placeholder="Ej. 140.00" value={promoPrecio} onChange={event => setPromoPrecio(event.target.value)} min="0" max="9999999999.99" step="0.01" /><small>Para recibir pedidos, configura precio y stock.</small></label>
+        <label>Stock de promociones<input type="number" value={promoStock} onChange={event => setPromoStock(event.target.value)} min="0" max="999999999" step="1" required /><small>Stock independiente de los productos.</small></label>
         <label>Válida hasta<input type="date" value={promoVigenteHasta} onChange={event => setPromoVigenteHasta(event.target.value)} /></label>
         <label>Producto relacionado
           <select value={promoLicorId} onChange={event => setPromoLicorId(event.target.value)}>
@@ -272,6 +276,7 @@ export default function PromocionesSection({
           <h3>{promo.titulo}</h3>
           <p>{promo.descuento}</p>
           {promo.precio != null && <strong>Precio: {new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(Number(promo.precio))}</strong>}
+          <small>Stock: {promo.stock ?? 'no disponible'}</small>
           {promo.vigente_hasta && <small>Válida hasta {new Intl.DateTimeFormat('es', { dateStyle: 'medium' }).format(new Date(`${promo.vigente_hasta}T00:00:00`))}</small>}
           <small>{promo.activa === false ? 'Inactiva' : isPromotionExpired(promo) ? 'Vencida · no visible al cliente' : 'Activa'}{promo.licor_id ? ` · ${licores.find(product => String(product.id) === String(promo.licor_id))?.name || 'Producto asociado'}` : ''}</small>
           <AdminRowActions
@@ -280,6 +285,8 @@ export default function PromocionesSection({
               setPromoTitulo(promo.titulo || '');
               setPromoDesc(promo.descuento || '');
               setPromoPrecio(promo.precio == null ? '' : String(promo.precio));
+              setPromoStock(promo.stock == null ? '0' : String(promo.stock));
+              setPromoExpectedStock(promo.stock ?? null);
               setPromoVigenteHasta(promo.vigente_hasta || '');
               setPromoLicorId(promo.licor_id ? String(promo.licor_id) : '');
               setPromoActiva(promo.activa !== false);

@@ -24,3 +24,4 @@ backend/db.json
 backend/migrations/*
 !backend/migrations/20261108_create_business_settings.sql
 !backend/migrations/20261108_add_promotion_price.sql
+!backend/migrations/20261108_promotion_order_stock.sql

@@ -8,15 +8,24 @@ test('offer CRUD, permission checks and concurrent balance protection', async t 
     const records = { store_promo_codes: new Map(), store_gift_cards: new Map() };
     let orderExists = false;
     let publicPromotion = null;
+    let orderRecord = null;
     let settings = { id: 1, business_name: 'VIP Bar', opening_hours: 'Horario no configurado', address: '', phone: '', map_url: '', currency: 'USD' };
     const mock = http.createServer(async (req, res) => {
         const url = new URL(req.url, 'http://localhost');
         res.setHeader('content-type', 'application/json');
         if (url.pathname === '/auth/v1/user') {
-            res.end(JSON.stringify({ id: 'test-admin', email: 'admin@example.test' }));
+            res.end(JSON.stringify({ id: 'test-admin', email: 'admin@example.test', email_confirmed_at: '2026-01-01T00:00:00Z', app_metadata: { provider: 'google' } }));
             return;
         }
         if (url.pathname === '/rest/v1/reservas') {
+            if (req.method === 'POST') {
+                let body = '';
+                for await (const chunk of req) body += chunk;
+                orderRecord = { id: 1, ...JSON.parse(body)[0] };
+                res.statusCode = 201;
+                res.end(JSON.stringify([orderRecord]));
+                return;
+            }
             res.end(JSON.stringify(orderExists ? [{ id: 1 }] : []));
             return;
         }
@@ -28,11 +37,12 @@ test('offer CRUD, permission checks and concurrent balance protection', async t 
             let body = '';
             for await (const chunk of req) body += chunk;
             if (req.method === 'POST') {
-                publicPromotion = { id: 1, ...JSON.parse(body)[0] };
+                publicPromotion = { id: 1, stock: 0, ...JSON.parse(body)[0] };
                 res.statusCode = 201;
                 res.end(JSON.stringify(publicPromotion));
             } else if (req.method === 'PATCH') {
-                if (url.searchParams.get('id') !== 'eq.1' || !publicPromotion) {
+                if (url.searchParams.get('id') !== 'eq.1' || !publicPromotion
+                    || (url.searchParams.has('stock') && url.searchParams.get('stock') !== `eq.${publicPromotion.stock}`)) {
                     res.end('[]');
                 } else {
                     publicPromotion = { ...publicPromotion, ...JSON.parse(body) };
@@ -154,6 +164,19 @@ test('offer CRUD, permission checks and concurrent balance protection', async t 
     });
     assert.equal(formResponse.status, 200);
     assert.equal((await formResponse.json()).precio, 140);
+    assert.equal((await request('/promociones/1', 'PUT', { ...publicPromo, stock: 5 })).status, 400);
+    assert.equal((await request('/promociones/1', 'PUT', { ...publicPromo, stock: 5, expectedStock: 1 })).status, 409);
+    assert.equal((await request('/promociones/1', 'PUT', { ...publicPromo, stock: 5, expectedStock: 0 })).data.stock, 5);
+    const order = { clientName: 'Cliente', fulfillmentMode: 'pickup', currency: 'PEN', items: [{ type: 'promotion', id: 1, qty: 2, price: 140.5, name: 'Precio falso' }] };
+    assert.equal((await request('/reservas', 'POST', { ...order, currency: 'USD' })).status, 400);
+    assert.equal((await request('/reservas', 'POST', { ...order, items: [{ ...order.items[0], price: 1 }] })).status, 409);
+    assert.equal((await request('/reservas', 'POST', { ...order, items: [{ ...order.items[0], qty: 6 }] })).status, 409);
+    const placed = await request('/reservas', 'POST', order);
+    assert.equal(placed.status, 201);
+    assert.equal(placed.data.order_total, 281);
+    assert.equal(placed.data.items[0].name, 'Dos unidades');
+    assert.equal(placed.data.items[0].type, 'promotion');
+    assert.equal(orderRecord.items[0].price, 140.5);
     const promo = { code: 'PROMO-TEST', discountType: 'percent', discountValue: 20, currency: 'PEN', maxRedemptions: '', expiresAt: '' };
     const gift = { code: 'REGALO-TEST', balance: 50, currency: 'PEN', expiresAt: '' };
     assert.equal((await request('/ofertas-admin/promo', 'POST', promo)).status, 201);
