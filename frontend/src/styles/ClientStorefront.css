@@ -67,6 +67,14 @@
   color: #e4c28f;
   font-size: 1.15rem;
   font-style: italic;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.store-brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .store-brand strong,

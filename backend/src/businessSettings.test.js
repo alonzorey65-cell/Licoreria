@@ -6,7 +6,8 @@ const settings = { businessName: '  Mi local ', openingHours: 'Todos los días',
 
 test('validates, trims and returns the shared business details', () => {
     const row = parseBusinessSettings(settings);
-    assert.deepEqual(formatBusinessSettings(row), { ...settings, businessName: 'Mi local' });
+    assert.deepEqual(formatBusinessSettings(row), { ...settings, businessName: 'Mi local', logoUrl: '' });
+    assert.equal(formatBusinessSettings({ ...row, logo_url: 'https://example.test/logo.png' }).logoUrl, 'https://example.test/logo.png');
 });
 
 test('rejects invalid URLs, missing details, currencies and oversized values', () => {

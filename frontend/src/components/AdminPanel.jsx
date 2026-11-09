@@ -95,7 +95,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
     const theme = savedTheme || configuredTheme;
     return ['glass', 'wine', 'light'].includes(theme) ? theme : 'glass';
   });
-  const { settings: businessSettings, loaded: settingsLoaded, error: settingsError, refresh: refreshSettings, save: saveSettings } = useBusinessSettings();
+  const { settings: businessSettings, loaded: settingsLoaded, error: settingsError, refresh: refreshSettings, save: saveSettings, saveLogo, removeLogo } = useBusinessSettings();
   const [activities, setActivities] = useState(readAdminActivity);
   const [editingRecords, setEditingRecords] = useState({});
   const [activeMenu, setActiveMenu] = useState('dashboard');
@@ -971,7 +971,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
           }} />}
           {activeMenu === 'resenas' && <ResenasSection {...{ resenas, resenaCliente, setResenaCliente, resenaComentario, setResenaComentario, resenaPuntuacion, setResenaPuntuacion, editingId: editingRecords.resenas, setEditingRecord, handleResenaSubmit, handleDeleteRecord }} />}
           {activeMenu === 'categorias' && <CategoriasSection {...{ nuevaCat, setNuevaCat, editingId: editingRecords.categorias, setEditingRecord, handleCategoriaSubmit, handleDeleteRecord, categorias }} />}
-          {activeMenu === 'configuracion' && <BusinessSettingsSection settings={businessSettings} settingsLoaded={settingsLoaded} settingsError={settingsError} onRefresh={refreshSettings} adminTheme={adminTheme} onSave={handleBusinessSettingsSave} onThemeChange={saveTheme} />}
+          {activeMenu === 'configuracion' && <BusinessSettingsSection settings={businessSettings} settingsLoaded={settingsLoaded} settingsError={settingsError} onRefresh={refreshSettings} adminTheme={adminTheme} onSave={handleBusinessSettingsSave} onThemeChange={saveTheme} onSaveLogo={saveLogo} onRemoveLogo={removeLogo} />}
           {activeMenu === 'reportes' && <ReportsSection reservas={reservas} facturas={facturas} currency={businessSettings.currency} />}
           {activeMenu === 'actividad' && <ActivitySection activities={activities} onClear={handleActivityClear} />}
           {activeMenu === 'clientes' && <CustomersSection reservas={reservas} facturas={facturas} currency={businessSettings.currency} profiles={clientProfiles} profilesError={clientProfilesError} />}

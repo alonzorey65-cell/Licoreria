@@ -110,7 +110,7 @@ test('offer CRUD, permission checks and concurrent balance protection', async t 
             return;
         }
         if (url.pathname === '/rest/v1/business_settings') {
-            if (req.method === 'POST') {
+            if (req.method === 'POST' || req.method === 'PATCH') {
                 let body = '';
                 for await (const chunk of req) body += chunk;
                 settings = { ...settings, ...JSON.parse(body) };
@@ -330,4 +330,31 @@ test('offer CRUD, permission checks and concurrent balance protection', async t 
     orderExists = false;
     assert.equal((await request('/ofertas-admin/gift-card/REGALO-TEST', 'DELETE')).status, 200);
     assert.equal((await request('/ofertas-admin/promo/PROMO-TEST', 'DELETE')).status, 200);
+    const logoForm = () => {
+        const form = new FormData();
+        form.set('image', new Blob(['logo bytes'], { type: 'image/png' }), 'logo.png');
+        return form;
+    };
+    assert.equal((await fetch(`${base}/business-settings/logo`, { method: 'PUT', body: logoForm() })).status, 401);
+    assert.equal((await request('/business-settings/logo', 'DELETE', null, false)).status, 401);
+    const noLogo = await fetch(`${base}/business-settings/logo`, {
+        method: 'PUT', headers: { Authorization: 'Bearer test-token' }, body: new FormData()
+    });
+    assert.equal(noLogo.status, 400);
+    const invalidLogo = new FormData();
+    invalidLogo.set('image', new Blob(['invalid'], { type: 'text/plain' }), 'logo.txt');
+    assert.equal((await fetch(`${base}/business-settings/logo`, {
+        method: 'PUT', headers: { Authorization: 'Bearer test-token' }, body: invalidLogo
+    })).status, 400);
+    const logoResponse = await fetch(`${base}/business-settings/logo`, {
+        method: 'PUT', headers: { Authorization: 'Bearer test-token' }, body: logoForm()
+    });
+    assert.equal(logoResponse.status, 200);
+    const logoUrl = (await logoResponse.json()).logoUrl;
+    assert.match(logoUrl, /\/catalog-images\/business\/.*\.png$/);
+    assert.equal(await (await fetch(logoUrl)).text(), 'logo bytes');
+    assert.equal((await request('/business-settings', 'GET', null, false)).data.logoUrl, logoUrl);
+    assert.equal((await request('/business-settings', 'PUT', newSettings)).data.logoUrl, logoUrl);
+    assert.equal((await request('/business-settings/logo', 'DELETE')).data.logoUrl, '');
+    assert.equal((await request('/business-settings', 'GET', null, false)).data.logoUrl, '');
 });

@@ -387,6 +387,36 @@ const parseImageUpload = (req, res, next) => upload.single('image')(req, res, er
     return next();
 });
 
+app.put('/api/business-settings/logo', parseImageUpload, async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Selecciona una imagen para el logo.' });
+    try {
+        const settings = await withCatalogImage(supabase, Boolean(supabaseServiceRoleKey), req.file, 'business', async logoUrl => {
+            const { data, error } = await supabase.from('business_settings')
+                .update({ logo_url: logoUrl, updated_at: new Date().toISOString() })
+                .eq('id', 1).select().single();
+            if (error) throw error;
+            return data;
+        });
+        return res.json(formatBusinessSettings(settings));
+    } catch (error) {
+        console.error('No se pudo guardar el logo del negocio.', error);
+        return res.status(500).json({ error: `No se pudo guardar el logo: ${error.message}` });
+    }
+});
+
+app.delete('/api/business-settings/logo', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('business_settings')
+            .update({ logo_url: '', updated_at: new Date().toISOString() })
+            .eq('id', 1).select().single();
+        if (error) throw error;
+        return res.json(formatBusinessSettings(data));
+    } catch (error) {
+        console.error('No se pudo quitar el logo del negocio.', error);
+        return res.status(500).json({ error: 'No se pudo quitar el logo del negocio.' });
+    }
+});
+
 // ==================== LICORES ====================
 app.get('/api/licores', async (req, res) => {
     try {

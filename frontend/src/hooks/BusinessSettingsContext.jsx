@@ -1,9 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../api/apiConfig';
-import { adminRequest } from '../api/adminApi';
+import { adminFetch, adminRequest } from '../api/adminApi';
 
 const BusinessSettingsContext = createContext(null);
-const defaults = { businessName: 'VIP Bar', openingHours: 'Horario no configurado', address: '', phone: '', mapUrl: '', currency: 'USD' };
+const defaults = { businessName: 'VIP Bar', openingHours: 'Horario no configurado', address: '', phone: '', mapUrl: '', currency: 'USD', logoUrl: '' };
 
 function initialSettings() {
   try {
@@ -54,6 +54,28 @@ export function BusinessSettingsProvider({ children }) {
     return saved;
   }, []);
 
+  const saveLogo = useCallback(async file => {
+    ++version.current;
+    const body = new FormData();
+    body.append('image', file);
+    const response = await adminFetch(apiUrl('business-settings/logo'), { method: 'PUT', body });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `No se pudo guardar el logo (${response.status}).`);
+    ++version.current;
+    setSettings(result);
+    setLoaded(true);
+    setError('');
+  }, []);
+
+  const removeLogo = useCallback(async () => {
+    ++version.current;
+    const result = await adminRequest(apiUrl('business-settings/logo'), 'DELETE');
+    ++version.current;
+    setSettings(result);
+    setLoaded(true);
+    setError('');
+  }, []);
+
   useEffect(() => {
     refresh();
     window.addEventListener('focus', refresh);
@@ -65,7 +87,7 @@ export function BusinessSettingsProvider({ children }) {
     };
   }, [refresh]);
 
-  return <BusinessSettingsContext.Provider value={{ settings, loaded, error, refresh, save }}>{children}</BusinessSettingsContext.Provider>;
+  return <BusinessSettingsContext.Provider value={{ settings, loaded, error, refresh, save, saveLogo, removeLogo }}>{children}</BusinessSettingsContext.Provider>;
 }
 
 export function useBusinessSettings() {

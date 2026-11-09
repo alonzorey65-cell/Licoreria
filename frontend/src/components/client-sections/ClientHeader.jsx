@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useBusinessSettings } from '../../hooks/BusinessSettingsContext';
 
 export function ClientBusinessInfo() {
@@ -40,6 +40,13 @@ const clientViews = [
   { id: 'reviews', label: 'Reseñas' }
 ];
 
+function BusinessLogo({ logoUrl }) {
+  const [failed, setFailed] = useState(false);
+  return <span className="store-brand-mark" aria-hidden="true">
+    {logoUrl && !failed ? <img src={logoUrl} alt="" onError={() => { console.error('No se pudo cargar el logo del negocio.'); setFailed(true); }} /> : 'V'}
+  </span>;
+}
+
 export const clientThemes = [
   { id: 'vino', label: 'Vino clásico', swatch: '#612c37' },
   { id: 'bosque', label: 'Bosque', swatch: '#315746' },
@@ -63,8 +70,8 @@ export default function ClientHeader({
 
   return (
     <header className="store-header">
-      <a className="store-brand" href="/" aria-label="VIP Bar, inicio">
-        <span className="store-brand-mark" aria-hidden="true">V</span>
+      <a className="store-brand" href="/" aria-label={`${settings.businessName}, inicio`}>
+        <BusinessLogo key={settings.logoUrl || 'none'} logoUrl={settings.logoUrl} />
         <span>
           <strong>{settings.businessName}</strong>
           <small>BAR · LICORERÍA</small>

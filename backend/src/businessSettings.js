@@ -38,6 +38,7 @@ export function formatBusinessSettings(row) {
         address: row.address,
         phone: row.phone,
         mapUrl: row.map_url,
-        currency: row.currency
+        currency: row.currency,
+        logoUrl: row.logo_url || ''
     };
 }

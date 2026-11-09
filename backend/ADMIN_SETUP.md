@@ -12,6 +12,7 @@
    - `migrations/20261108_add_promotion_price.sql`
    - `migrations/20261108_promotion_order_stock.sql`
    - `migrations/20261108_create_catalog_images.sql`
+   - `migrations/20261108_add_business_logo.sql`
 3. Set `SUPABASE_URL`, the public `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `ADMIN_EMAIL` in the backend `.env`. The service-role key is required for server-side admin operations and RLS-protected writes. Never expose it to the frontend or commit it.
 4. Enable email/password sign-in in Supabase Auth and restart the backend.
 5. Open `/admin`, create an account using the exact `ADMIN_EMAIL`, and confirm the email if Supabase requires it. That address is the bootstrap administrator.
@@ -55,6 +56,11 @@ backend and bucket are ready. If the file is missing, recover it from the
 original server or a backup first. Re-uploading replaces the database URL with
 the shared Storage URL. Customer profile images remain in the private
 `customer-avatars` bucket and are accessible only to their owner.
+The business logo is uploaded separately in **Configuración** and is shown in
+the storefront header. Apply the business-logo migration and deploy the backend
+and frontend before using it. It uses the same public `catalog-images` bucket;
+the existing configuration refresh makes changes visible to other browsers
+within 30 seconds or when they regain focus.
 
 The client-experience migration adds live reservation statuses, product-promotion links, expiration dates, and a queue of restock-interest requests. Staff can review those requests in **Alertas** and contact customers manually; sending email/SMS notifications requires a separately configured provider.
 
