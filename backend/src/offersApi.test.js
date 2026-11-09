@@ -7,6 +7,7 @@ import test from 'node:test';
 test('offer CRUD, permission checks and concurrent balance protection', async t => {
     const records = { store_promo_codes: new Map(), store_gift_cards: new Map() };
     let orderExists = false;
+    let publicPromotion = null;
     let settings = { id: 1, business_name: 'VIP Bar', opening_hours: 'Horario no configurado', address: '', phone: '', map_url: '', currency: 'USD' };
     const mock = http.createServer(async (req, res) => {
         const url = new URL(req.url, 'http://localhost');
@@ -21,6 +22,25 @@ test('offer CRUD, permission checks and concurrent balance protection', async t 
         }
         if (url.pathname === '/rest/v1/mesas' && req.method === 'PATCH') {
             res.end(JSON.stringify(url.searchParams.get('number') === 'eq.10' ? [{ id: 10 }] : []));
+            return;
+        }
+        if (url.pathname === '/rest/v1/promociones') {
+            let body = '';
+            for await (const chunk of req) body += chunk;
+            if (req.method === 'POST') {
+                publicPromotion = { id: 1, ...JSON.parse(body)[0] };
+                res.statusCode = 201;
+                res.end(JSON.stringify(publicPromotion));
+            } else if (req.method === 'PATCH') {
+                if (url.searchParams.get('id') !== 'eq.1' || !publicPromotion) {
+                    res.end('[]');
+                } else {
+                    publicPromotion = { ...publicPromotion, ...JSON.parse(body) };
+                    res.end(JSON.stringify([publicPromotion]));
+                }
+            } else {
+                res.end(JSON.stringify(publicPromotion ? [publicPromotion] : []));
+            }
             return;
         }
         if (url.pathname === '/rest/v1/business_settings') {
@@ -116,6 +136,24 @@ test('offer CRUD, permission checks and concurrent balance protection', async t 
     assert.equal((await request('/business-settings', 'PUT', { ...newSettings, currency: 'BAD' })).status, 400);
     assert.equal((await request('/business-settings', 'PUT', newSettings)).data.currency, 'PEN');
     assert.equal((await request('/business-settings', 'GET', null, false)).data.businessName, 'Mi local');
+    const publicPromo = { titulo: 'Dos unidades', descuento: 'Promoción de prueba', precio: '140.50' };
+    assert.equal((await request('/promociones', 'POST', publicPromo, false)).status, 401);
+    assert.equal((await request('/promociones', 'POST', { ...publicPromo, precio: '-1' })).status, 400);
+    assert.equal((await request('/promociones', 'POST', publicPromo)).data.precio, 140.5);
+    assert.equal((await request('/promociones', 'GET', null, false)).data[0].precio, 140.5);
+    assert.equal((await request('/promociones/1', 'PUT', { ...publicPromo, precio: '99.99' })).data.precio, 99.99);
+    assert.equal((await request('/promociones/1', 'PUT', { titulo: 'Actualizada', descuento: 'Detalle' })).data.precio, 99.99);
+    assert.equal((await request('/promociones/1', 'PUT', { ...publicPromo, precio: '' })).data.precio, null);
+    assert.equal((await request('/promociones/1', 'PUT', { ...publicPromo, precio: '1.999' })).status, 400);
+    const form = new FormData();
+    form.set('titulo', 'Con formulario');
+    form.set('descuento', 'Dos unidades');
+    form.set('precio', '140.00');
+    const formResponse = await fetch(`${base}/promociones/1`, {
+        method: 'PUT', headers: { Authorization: 'Bearer test-token' }, body: form
+    });
+    assert.equal(formResponse.status, 200);
+    assert.equal((await formResponse.json()).precio, 140);
     const promo = { code: 'PROMO-TEST', discountType: 'percent', discountValue: 20, currency: 'PEN', maxRedemptions: '', expiresAt: '' };
     const gift = { code: 'REGALO-TEST', balance: 50, currency: 'PEN', expiresAt: '' };
     assert.equal((await request('/ofertas-admin/promo', 'POST', promo)).status, 201);

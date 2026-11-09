@@ -9,6 +9,7 @@
    - `migrations/20261107_add_customer_experience.sql`
    - `migrations/20261107_add_customer_profiles.sql`
    - `migrations/20261108_create_business_settings.sql`
+   - `migrations/20261108_add_promotion_price.sql`
 3. Set `SUPABASE_URL`, the public `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `ADMIN_EMAIL` in the backend `.env`. The service-role key is required for server-side admin operations and RLS-protected writes. Never expose it to the frontend or commit it.
 4. Enable email/password sign-in in Supabase Auth and restart the backend.
 5. Open `/admin`, create an account using the exact `ADMIN_EMAIL`, and confirm the email if Supabase requires it. That address is the bootstrap administrator.
@@ -50,6 +51,11 @@ displayed in the storefront. Codes already referenced by an order cannot be
 deleted; deactivate them instead to preserve the order history and refunds.
 Editing a gift-card balance replaces the current remaining balance, and is
 rejected if that balance has changed since the administrator opened the form.
+Public promotions can optionally display a price in PEN. This price is
+informational: public promotions cannot yet be added to the cart or charged at
+that price. Existing promotions have no price until an administrator edits them.
+Apply the promotion-price migration before deploying the updated backend and
+frontend. The migration does not change existing promotion prices.
 
 Customer checkout uses **Continue with Google**. Configure it once in the same Supabase project used by the backend:
 

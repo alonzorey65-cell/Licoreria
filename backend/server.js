@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import { parseOffer } from './src/offerValidation.js';
 import { formatBusinessSettings, parseBusinessSettings } from './src/businessSettings.js';
+import { parsePromotionPrice } from './src/promotionPrice.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1252,6 +1253,9 @@ app.post('/api/promociones', parseImageUpload, async (req, res) => {
         return res.status(400).json({ error: 'El título es obligatorio (máximo 120 caracteres) y el detalle debe tener hasta 500 caracteres.' });
     }
 
+    let precio;
+    try { precio = parsePromotionPrice(req.body.precio); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
     try {
         const promo = {
             titulo,
@@ -1260,6 +1264,7 @@ app.post('/api/promociones', parseImageUpload, async (req, res) => {
             licor_id: req.body.licor_id || null,
             activa: req.body.activa !== 'false'
         };
+        if (precio !== undefined) promo.precio = precio;
         if (req.file) promo.imagen = `/uploads/${req.file.filename}`;
         const { data, error } = await supabase.from('promociones').insert([promo]).select().single();
         if (error) throw error;
@@ -1275,6 +1280,9 @@ app.put('/api/promociones/:id', parseImageUpload, async (req, res) => {
         return res.status(400).json({ error: 'El título es obligatorio (máximo 120 caracteres) y el detalle debe tener hasta 500 caracteres.' });
     }
 
+    let precio;
+    try { precio = parsePromotionPrice(req.body.precio); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
     try {
         const promo = {
             titulo,
@@ -1283,6 +1291,7 @@ app.put('/api/promociones/:id', parseImageUpload, async (req, res) => {
             licor_id: req.body.licor_id || null,
             activa: req.body.activa !== 'false'
         };
+        if (precio !== undefined) promo.precio = precio;
         if (req.file) promo.imagen = `/uploads/${req.file.filename}`;
         else if (req.body.removeImage === 'true') promo.imagen = null;
         const { data, error } = await supabase

@@ -126,6 +126,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
   const [promos, setPromos] = useState([]);
   const [promoTitulo, setPromoTitulo] = useState('');
   const [promoDesc, setPromoDesc] = useState('');
+  const [promoPrecio, setPromoPrecio] = useState('');
   const [promoVigenteHasta, setPromoVigenteHasta] = useState('');
   const [promoLicorId, setPromoLicorId] = useState('');
   const [promoActiva, setPromoActiva] = useState(true);
@@ -712,6 +713,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
       const formData = new FormData();
       formData.append('titulo', promoTitulo);
       formData.append('descuento', promoDesc);
+      formData.append('precio', promoPrecio);
       formData.append('vigente_hasta', promoVigenteHasta);
       formData.append('licor_id', promoLicorId);
       formData.append('activa', String(promoActiva));
@@ -728,6 +730,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
 
       setPromoTitulo('');
       setPromoDesc('');
+      setPromoPrecio('');
       setPromoVigenteHasta('');
       setPromoLicorId('');
       setPromoActiva(true);
@@ -951,7 +954,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
           {activeMenu === 'proveedores' && <ProveedoresSection {...{ provNombre, setProvNombre, provContacto, setProvContacto, provProducto, setProvProducto, editingId: editingRecords.proveedores, setEditingRecord, handleProveedorSubmit, handleDeleteRecord, proveedores }} />}
           {activeMenu === 'empleados' && <EmpleadosSection {...{ empNombre, setEmpNombre, empEmail, setEmpEmail, empRol, setEmpRol, editingId: editingRecords.empleados, setEditingRecord, handleEmpleadoSubmit, handleDeleteRecord, empleados }} />}
           {activeMenu === 'promociones' && <PromocionesSection {...{
-            promoTitulo, setPromoTitulo, promoDesc, setPromoDesc,
+            promoTitulo, setPromoTitulo, promoDesc, setPromoDesc, promoPrecio, setPromoPrecio,
             promoVigenteHasta, setPromoVigenteHasta, promoLicorId, setPromoLicorId,
             promoActiva, setPromoActiva, licores,
             promoImageFile, setPromoImageFile, promoImageUrl, setPromoImageUrl,

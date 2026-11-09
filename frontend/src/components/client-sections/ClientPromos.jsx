@@ -127,6 +127,10 @@ export default function ClientPromos({ products = [], onProductSelect, locale = 
                 <span className="promotion-number">{english ? 'OFFER' : 'PROMOCIÓN'} 0{index + 1}</span>
                 <h3>{promo.titulo}</h3>
                 <p>{promo.descuento}</p>
+                {promo.precio != null && <>
+                  <strong>{english ? 'Promotion price' : 'Precio de la promoción'}: {new Intl.NumberFormat(english ? 'en-US' : 'es-PE', { style: 'currency', currency: 'PEN' }).format(Number(promo.precio))}</strong>
+                  <small>{english ? 'Informational price; not applied automatically to the cart.' : 'Precio informativo; no se aplica automáticamente al carrito.'}</small>
+                </>}
                 {expiration && !Number.isNaN(expiration.getTime()) && <small className="promotion-expiration">{english ? 'Valid until' : 'Válida hasta'} {new Intl.DateTimeFormat(english ? 'en-US' : 'es', { dateStyle: 'medium' }).format(expiration)}</small>}
                 {relatedProduct && <button className="promotion-product-link" type="button" onClick={() => onProductSelect?.(relatedProduct)}>{english ? 'View' : 'Ver'} {relatedProduct.name} ↗</button>}
               </div>
