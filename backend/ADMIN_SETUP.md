@@ -11,6 +11,7 @@
    - `migrations/20261108_create_business_settings.sql`
    - `migrations/20261108_add_promotion_price.sql`
    - `migrations/20261108_promotion_order_stock.sql`
+   - `migrations/20261108_create_catalog_images.sql`
 3. Set `SUPABASE_URL`, the public `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `ADMIN_EMAIL` in the backend `.env`. The service-role key is required for server-side admin operations and RLS-protected writes. Never expose it to the frontend or commit it.
 4. Enable email/password sign-in in Supabase Auth and restart the backend.
 5. Open `/admin`, create an account using the exact `ADMIN_EMAIL`, and confirm the email if Supabase requires it. That address is the bootstrap administrator.
@@ -40,6 +41,20 @@ truth. If the API is unreachable or rejects an operation, the application
 reports the error rather than retrying writes directly against Supabase or
 assuming an empty catalog. Configure `VITE_API_URL` for the published frontend
 and deploy the backend changes as well as the frontend.
+
+Product and promotion uploads are stored in the public `catalog-images`
+Supabase Storage bucket, so the same images are available on every device
+without requiring a customer login. Apply the catalog-images migration in the
+same Supabase project and deploy/restart every backend that writes to it before
+uploading images. Only the authenticated admin API writes to this bucket using
+the server-side service role; never use it for private profile images.
+Existing `/uploads/` images continue to use the original backend's local files
+and are not migrated automatically. To restore them, edit each affected product
+or promotion in the admin panel and re-upload its original image after the
+backend and bucket are ready. If the file is missing, recover it from the
+original server or a backup first. Re-uploading replaces the database URL with
+the shared Storage URL. Customer profile images remain in the private
+`customer-avatars` bucket and are accessible only to their owner.
 
 The client-experience migration adds live reservation statuses, product-promotion links, expiration dates, and a queue of restock-interest requests. Staff can review those requests in **Alertas** and contact customers manually; sending email/SMS notifications requires a separately configured provider.
 

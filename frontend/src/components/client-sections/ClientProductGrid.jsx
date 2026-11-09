@@ -117,7 +117,7 @@ export default function ClientProductGrid({
           return (
             <article className="product-card" key={licor.id}>
               <div className="product-image-wrap">
-                <ProductImage image={licor.image} name={licor.name} />
+                <ProductImage key={licor.image || 'none'} image={licor.image} name={licor.name} />
                 <button
                   type="button"
                   className={`product-favorite ${favorites.includes(String(licor.id)) ? 'is-favorite' : ''}`}
@@ -188,7 +188,7 @@ function ProductDetailsDialog({
     <div className="product-dialog-overlay" onMouseDown={event => { if (event.target === event.currentTarget) closeDetails(); }}>
       <section className="product-dialog" role="dialog" aria-modal="true" aria-labelledby="product-dialog-title">
         <button type="button" className="product-dialog-close" onClick={closeDetails} aria-label="Cerrar detalles">×</button>
-        <div className="product-dialog-image"><ProductImage image={selectedProduct.image} name={selectedProduct.name} /></div>
+        <div className="product-dialog-image"><ProductImage key={selectedProduct.image || 'none'} image={selectedProduct.image} name={selectedProduct.name} /></div>
         <div className="product-dialog-content">
           <p className="store-kicker">{selectedProduct.category || (english ? 'HOUSE SELECTION' : 'SELECCIÓN DE LA CASA')}</p>
           <h2 id="product-dialog-title">{selectedProduct.name}</h2>

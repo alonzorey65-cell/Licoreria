@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
@@ -11,6 +10,7 @@ import { parseOffer } from './src/offerValidation.js';
 import { formatBusinessSettings, parseBusinessSettings } from './src/businessSettings.js';
 import { parsePromotionPrice } from './src/promotionPrice.js';
 import { parsePromotionStock, validatePromotionItem } from './src/promotionOrder.js';
+import { withCatalogImage } from './src/catalogImages.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -369,20 +369,8 @@ app.get('/api/admin-session', async (req, res) => {
     }
 });
 
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
-}
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => {
-        const extensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
-        cb(null, `${randomUUID()}${extensions[file.mimetype]}`);
-    }
-});
 const upload = multer({
-    storage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
@@ -408,21 +396,23 @@ app.get('/api/licores', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/licores', upload.single('image'), async (req, res) => {
+app.post('/api/licores', parseImageUpload, async (req, res) => {
     try {
         const { name, price, stock, category, description, presentacion, graduacion, origen, brand } = req.body;
-        const imageUrl = req.file ? `/uploads/${req.file.filename}` : '';
-        const { data, error } = await supabase.from('licores').insert([{
-            name, price: parseFloat(price), stock: parseInt(stock), category, image: imageUrl,
-            description: description || null, presentacion: presentacion || null,
-            graduacion: graduacion || null, origen: origen || null, brand: brand || null
-        }]).select();
-        if (error) throw error;
-        res.status(201).json(data[0]);
+        const product = await withCatalogImage(supabase, Boolean(supabaseServiceRoleKey), req.file, 'products', async imageUrl => {
+            const { data, error } = await supabase.from('licores').insert([{
+                name, price: parseFloat(price), stock: parseInt(stock), category, image: imageUrl || '',
+                description: description || null, presentacion: presentacion || null,
+                graduacion: graduacion || null, origen: origen || null, brand: brand || null
+            }]).select();
+            if (error) throw error;
+            return data[0];
+        });
+        res.status(201).json(product);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/licores/:id', upload.single('image'), async (req, res) => {
+app.put('/api/licores/:id', parseImageUpload, async (req, res) => {
     try {
         const id = req.params.id;
         const { name, price, stock, category, description, presentacion, graduacion, origen, brand } = req.body;
@@ -431,12 +421,19 @@ app.put('/api/licores/:id', upload.single('image'), async (req, res) => {
             description: description || null, presentacion: presentacion || null,
             graduacion: graduacion || null, origen: origen || null, brand: brand || null
         };
-        if (req.file) updateData.image = `/uploads/${req.file.filename}`;
-        const { data, error } = await supabase.from('licores').update(updateData).eq('id', id).select();
-        if (error) throw error;
-        if (!data.length) return res.status(404).json({ error: 'No se encontró el producto que se quiere actualizar.' });
-        res.json(data[0]);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+        const product = await withCatalogImage(supabase, Boolean(supabaseServiceRoleKey), req.file, 'products', async imageUrl => {
+            if (imageUrl) updateData.image = imageUrl;
+            const { data, error } = await supabase.from('licores').update(updateData).eq('id', id).select();
+            if (error) throw error;
+            if (!data.length) {
+                const notFound = new Error('No se encontró el producto que se quiere actualizar.');
+                notFound.status = 404;
+                throw notFound;
+            }
+            return data[0];
+        });
+        res.json(product);
+    } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 app.delete('/api/licores/:id', async (req, res) => {
@@ -1293,9 +1290,12 @@ app.post('/api/promociones', parseImageUpload, async (req, res) => {
         };
         if (precio !== undefined) promo.precio = precio;
         if (stock !== undefined) promo.stock = stock;
-        if (req.file) promo.imagen = `/uploads/${req.file.filename}`;
-        const { data, error } = await supabase.from('promociones').insert([promo]).select().single();
-        if (error) throw error;
+        const data = await withCatalogImage(supabase, Boolean(supabaseServiceRoleKey), req.file, 'promotions', async imageUrl => {
+            if (imageUrl) promo.imagen = imageUrl;
+            const { data, error } = await supabase.from('promociones').insert([promo]).select().single();
+            if (error) throw error;
+            return data;
+        });
         return res.status(201).json(data);
     } catch (error) {
         return res.status(500).json({ error: error.message });
@@ -1326,19 +1326,26 @@ app.put('/api/promociones/:id', parseImageUpload, async (req, res) => {
         };
         if (precio !== undefined) promo.precio = precio;
         if (stock !== undefined) promo.stock = stock;
-        if (req.file) promo.imagen = `/uploads/${req.file.filename}`;
-        else if (req.body.removeImage === 'true') promo.imagen = null;
-        let query = supabase
-            .from('promociones')
-            .update(promo)
-            .eq('id', req.params.id);
-        if (stock !== undefined) query = query.eq('stock', expectedStock);
-        const { data, error } = await query.select().maybeSingle();
-        if (error) throw error;
-        if (!data) return res.status(409).json({ error: 'La promoción o su stock cambiaron. Actualiza la lista y vuelve a editar.' });
+        if (!req.file && req.body.removeImage === 'true') promo.imagen = null;
+        const data = await withCatalogImage(supabase, Boolean(supabaseServiceRoleKey), req.file, 'promotions', async imageUrl => {
+            if (imageUrl) promo.imagen = imageUrl;
+            let query = supabase
+                .from('promociones')
+                .update(promo)
+                .eq('id', req.params.id);
+            if (stock !== undefined) query = query.eq('stock', expectedStock);
+            const { data, error } = await query.select().maybeSingle();
+            if (error) throw error;
+            if (!data) {
+                const conflict = new Error('La promoción o su stock cambiaron. Actualiza la lista y vuelve a editar.');
+                conflict.status = 409;
+                throw conflict;
+            }
+            return data;
+        });
         return res.json(data);
     } catch (error) {
-        return res.status(500).json({ error: error.message });
+        return res.status(error.status || 500).json({ error: error.message });
     }
 });
 
