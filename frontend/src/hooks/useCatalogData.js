@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fetchLicoresAPI, fetchMesasAPI } from '../api/clientApi';
 import { getSupabaseClient } from '../api/supabaseClient';
 import { API_MISCONFIGURED } from '../api/apiConfig';
+import { createQueuedRefresh } from '../utils/queuedRefresh';
 
 export function useCatalogData() {
   const [licores, setLicores] = useState([]);
@@ -9,11 +10,9 @@ export function useCatalogData() {
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
   const initialLoadCompleted = useRef(false);
-  const fetchInProgress = useRef(false);
 
-  const fetchAll = useCallback(async () => {
-    if (fetchInProgress.current) return true;
-    fetchInProgress.current = true;
+  const fetchAllRef = useRef(null);
+  if (!fetchAllRef.current) fetchAllRef.current = createQueuedRefresh(async () => {
     if (!initialLoadCompleted.current) setCatalogLoading(true);
     try {
       const [licoresData, mesasData] = await Promise.all([
@@ -34,10 +33,9 @@ export function useCatalogData() {
       initialLoadCompleted.current = true;
       setCatalogLoading(false);
       return false;
-    } finally {
-      fetchInProgress.current = false;
     }
-  }, []);
+  });
+  const fetchAll = fetchAllRef.current;
 
   useEffect(() => {
     let active = true;

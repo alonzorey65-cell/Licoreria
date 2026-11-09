@@ -12,6 +12,7 @@ function formatMesa(value) {
 export default function ClientOrderTracker({ activeOrder, accessToken }) {
   const [status, setStatus] = useState(activeOrder?.status || 'Recibido');
   const [trackingError, setTrackingError] = useState('');
+  const [notificationError, setNotificationError] = useState('');
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
     try {
       return localStorage.getItem(ORDER_NOTIFICATIONS_KEY) === 'true';
@@ -42,9 +43,15 @@ export default function ClientOrderTracker({ activeOrder, accessToken }) {
         if (active) {
           const nextStatus = result.status || 'Recibido';
           if (hasReceivedStatus.current && nextStatus !== lastKnownStatus.current && notificationsEnabled && window.Notification?.permission === 'granted') {
-            new window.Notification(`Tu pedido está ${nextStatus.toLowerCase()}`, {
-              body: `Pedido #${activeOrder.id} · ${formatMesa(activeOrder.mesaNumber)}`
-            });
+            try {
+              new window.Notification(`Tu pedido está ${nextStatus.toLowerCase()}`, {
+                body: `Pedido #${activeOrder.id} · ${formatMesa(activeOrder.mesaNumber)}`
+              });
+              setNotificationError('');
+            } catch (notificationFailure) {
+              console.error('No se pudo mostrar la notificación del pedido.', notificationFailure);
+              setNotificationError('No se pudo mostrar el aviso del navegador. Puedes consultar el estado aquí.');
+            }
           }
           hasReceivedStatus.current = true;
           lastKnownStatus.current = nextStatus;
@@ -91,6 +98,7 @@ export default function ClientOrderTracker({ activeOrder, accessToken }) {
       setNotificationsEnabled(true);
       localStorage.setItem(ORDER_NOTIFICATIONS_KEY, 'true');
       setTrackingError('');
+      setNotificationError('');
     } catch (error) {
       console.error('No se pudo configurar las notificaciones del pedido.', error);
       setTrackingError('No se pudieron activar las notificaciones en este navegador.');
@@ -121,6 +129,8 @@ export default function ClientOrderTracker({ activeOrder, accessToken }) {
         </>
       )}
       {trackingError && <small className="order-tracker-error" role="status">{trackingError}</small>}
+      {notificationError && <small className="order-tracker-error" role="status">{notificationError}</small>}
+      {notificationsEnabled && <small className="order-tracker-note">Los avisos requieren que esta página permanezca abierta.</small>}
     </section>
   );
 }

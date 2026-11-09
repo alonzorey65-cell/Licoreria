@@ -4,6 +4,7 @@ import { apiUrl } from '../api/apiConfig';
 import { adminFetch, adminRequest } from '../api/adminApi';
 import { getSupabaseClient } from '../api/supabaseClient';
 import { getSalesSummary } from '../utils/adminAnalytics';
+import { useBusinessSettings } from '../hooks/BusinessSettingsContext';
 
 // Importación de subsecciones modulares
 import DashboardSection from './admin-sections/DashboardSection';
@@ -20,6 +21,7 @@ import ResenasSection from './admin-sections/ResenasSection';
 import CategoriasSection from './admin-sections/CategoriasSection';
 import HelpRequestsSection from './admin-sections/HelpRequestsSection';
 import BusinessSettingsSection from './admin-sections/BusinessSettingsSection';
+import AdminNotices from './admin-sections/AdminNotices';
 import ReportsSection from './admin-sections/ReportsSection';
 import CustomersSection from './admin-sections/CustomersSection';
 import ActivitySection from './admin-sections/ActivitySection';
@@ -34,33 +36,6 @@ const InventoryLotsSection = lazy(() => operationsSections.then(module => ({ def
 
 const BUSINESS_SETTINGS_KEY = 'businessSettings';
 const ADMIN_ACTIVITY_KEY = 'adminActivityHistory';
-const defaultBusinessSettings = {
-  businessName: 'VIP Bar',
-  openingHours: 'Horario no configurado',
-  address: '',
-  phone: '',
-  mapUrl: '',
-  currency: 'USD'
-};
-const supportedCurrencies = ['USD', 'MXN', 'COP', 'PEN', 'EUR'];
-
-function readBusinessSettings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(BUSINESS_SETTINGS_KEY) || '{}');
-    return {
-      businessName: typeof saved.businessName === 'string' ? saved.businessName : defaultBusinessSettings.businessName,
-      openingHours: typeof saved.openingHours === 'string' ? saved.openingHours : defaultBusinessSettings.openingHours,
-      address: typeof saved.address === 'string' ? saved.address : defaultBusinessSettings.address,
-      phone: typeof saved.phone === 'string' ? saved.phone : defaultBusinessSettings.phone,
-      mapUrl: typeof saved.mapUrl === 'string' ? saved.mapUrl : defaultBusinessSettings.mapUrl,
-      currency: supportedCurrencies.includes(saved.currency) ? saved.currency : defaultBusinessSettings.currency
-    };
-  } catch (error) {
-    console.error('No se pudo recuperar la configuración del negocio.', error);
-    return defaultBusinessSettings;
-  }
-}
-
 function readAdminActivity() {
   try {
     const saved = JSON.parse(localStorage.getItem(ADMIN_ACTIVITY_KEY) || '[]');
@@ -120,12 +95,14 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
     const theme = savedTheme || configuredTheme;
     return ['glass', 'wine', 'light'].includes(theme) ? theme : 'glass';
   });
-  const [businessSettings, setBusinessSettings] = useState(readBusinessSettings);
+  const { settings: businessSettings, loaded: settingsLoaded, error: settingsError, refresh: refreshSettings, save: saveSettings } = useBusinessSettings();
   const [activities, setActivities] = useState(readAdminActivity);
   const [editingRecords, setEditingRecords] = useState({});
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [adminError, setAdminError] = useState('');
   const [adminNotice, setAdminNotice] = useState('');
+  const [collectionError, setCollectionError] = useState('');
+  const [helpLoadError, setHelpLoadError] = useState('');
   const [realtimeStatus, setRealtimeStatus] = useState('connecting');
   const [lastUpdated, setLastUpdated] = useState(null);
   
@@ -211,44 +188,9 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
   };
 
   const fetchCollection = async (path) => {
-    try {
-      const response = await adminFetch(apiUrl(path));
-      if (!response.ok) {
-        let detail = '';
-        try {
-          const body = await response.json();
-          detail = body.error ? `: ${body.error}` : '';
-        } catch {
-          detail = '';
-        }
-        throw new Error(`No se pudo cargar ${path} (${response.status})${detail}`);
-      }
-      const data = await response.json();
-      if (!Array.isArray(data)) throw new Error(`La respuesta de ${path} no tiene el formato esperado.`);
-      return data;
-    } catch (backendError) {
-      try {
-        const supabase = await getSupabaseClient();
-        const tableMap = {
-          'pos': 'facturas',
-          'resenas': 'reseñas',
-          'solicitudes-ayuda': 'solicitudes_ayuda',
-          'client-profiles': null
-        };
-        const tableName = tableMap[path] !== undefined ? tableMap[path] : path;
-        if (tableName) {
-          const { data, error } = await supabase.from(tableName).select('*');
-          if (error) throw error;
-          if (Array.isArray(data)) return data;
-        }
-      } catch (supabaseError) {
-        // Fallback de Supabase no disponible (ej. tabla con RLS bloqueada para anon)
-        console.warn(`No se pudo cargar "${path}" desde Supabase:`, supabaseError?.message || supabaseError);
-      }
-      // Retornar arreglo vacío en vez de relanzar el error, para no bloquear el panel
-      console.warn(`Usando arreglo vacío para "${path}" — ninguna fuente disponible.`);
-      return [];
-    }
+    const data = await adminRequest(apiUrl(path));
+    if (!Array.isArray(data)) throw new Error(`La respuesta de ${path} no tiene el formato esperado.`);
+    return data;
   };
 
   const fetchDataGenerales = async () => {
@@ -263,14 +205,14 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
         ['pos', 'facturas', setFacturas],
         ['resenas', 'resenas', setResenas]
       ].filter(([permission]) => adminPermissions[permission]);
-      // Usar allSettled para que una tabla con RLS bloqueada (ej. reservas) no rompa todo el panel
       const results = await Promise.allSettled(collections.map(([, resource]) => fetchCollection(resource)));
+      const failures = [];
       collections.forEach(([, , setter], index) => {
         if (results[index].status === 'fulfilled') {
           setter(results[index].value);
         } else {
-          console.warn('No se pudo cargar colección:', results[index].reason?.message);
-          setter([]);
+          console.error(`No se pudo cargar ${collections[index][1]}.`, results[index].reason);
+          failures.push(collections[index][1]);
         }
       });
       if (adminPermissions.clientes) {
@@ -280,17 +222,18 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
         } catch (profileError) {
           console.error('No se pudieron cargar los perfiles privados de clientes.', profileError);
           setClientProfilesError(profileError.message);
+          failures.push('perfiles de clientes');
         }
       } else {
         setClientProfiles([]);
         setClientProfilesError('');
       }
-      setAdminError('');
-      setLastUpdated(new Date());
-      return true;
+      setCollectionError(failures.length ? `No se pudieron actualizar: ${failures.join(', ')}. Los datos anteriores pueden estar desactualizados.` : '');
+      if (!failures.length) setLastUpdated(new Date());
+      return failures.length === 0;
     } catch (err) {
       console.error('Error sincronizando datos del panel.', err);
-      setAdminError(err.message);
+      setCollectionError(err.message);
       return false;
     }
   };
@@ -299,11 +242,11 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
     try {
       const requests = await fetchCollection('solicitudes-ayuda');
       setHelpRequests(requests);
-      setAdminError('');
+      setHelpLoadError('');
       return true;
     } catch (error) {
       console.error('Error cargando las solicitudes de ayuda.', error);
-      setAdminError(error.message);
+      setHelpLoadError(`No se pudieron actualizar las solicitudes de ayuda: ${error.message}`);
       return false;
     }
   };
@@ -459,7 +402,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
     const fallbackRefresh = setInterval(() => {
       fetchDataGenerales();
       fetchAll();
-    }, 60000);
+    }, 15000);
 
     return () => {
       active = false;
@@ -470,12 +413,12 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
   }, [isAuthenticated, adminPermissions]);
 
   useEffect(() => {
-    if (!isAuthenticated || activeMenu !== 'ayuda') return undefined;
+    if (!isAuthenticated || !adminPermissions.ayuda) return undefined;
 
     fetchHelpRequests();
     const refreshRequests = setInterval(fetchHelpRequests, 15000);
     return () => clearInterval(refreshRequests);
-  }, [isAuthenticated, activeMenu]);
+  }, [isAuthenticated, adminPermissions]);
 
   const runAdminAction = async (action, description = 'Realizó una operación administrativa.') => {
     setAdminError('');
@@ -500,64 +443,11 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
   const postAdminJson = async (path, body) => adminRequest(apiUrl(path), 'POST', body);
 
   const deleteAdminRecord = async (path) => {
-    try {
-      const response = await adminFetch(apiUrl(path), { method: 'DELETE' });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result.error || `No se pudo eliminar el registro (${response.status}).`);
-      }
-    } catch (backendError) {
-      try {
-        const supabase = await getSupabaseClient();
-        const [resource, id] = path.split('/');
-        const tableMap = { pos: 'facturas', resenas: 'reseñas', 'solicitudes-ayuda': 'solicitudes_ayuda' };
-        const tableName = tableMap[resource] || resource;
-        const { error } = await supabase.from(tableName).delete().eq('id', id);
-        if (error) throw error;
-        return;
-      } catch (supabaseError) {
-        // Fallback de Supabase no disponible (ej. tabla con RLS bloqueada para anon)
-        console.warn(`No se pudo cargar "${path}" desde Supabase:`, supabaseError?.message || supabaseError);
-      }
-      // Retornar arreglo vacío en vez de relanzar el error, para no bloquear el panel
-      console.warn(`Usando arreglo vacío para "${path}" — ninguna fuente disponible.`);
-      return [];
-    }
+    return adminRequest(apiUrl(path), 'DELETE');
   };
 
   const saveAdminRecord = async (resource, id, body) => {
-    try {
-      const response = await adminFetch(apiUrl(id ? `${resource}/${id}` : resource), {
-        method: id ? 'PUT' : 'POST',
-        body: JSON.stringify(body)
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(result.error || `No se pudo guardar el registro (${response.status}).`);
-      }
-      return result;
-    } catch (backendError) {
-      try {
-        const supabase = await getSupabaseClient();
-        const tableMap = { pos: 'facturas', resenas: 'reseñas', 'solicitudes-ayuda': 'solicitudes_ayuda' };
-        const tableName = tableMap[resource] || resource;
-        if (id) {
-          const { data, error } = await supabase.from(tableName).update(body).eq('id', id).select();
-          if (error) throw error;
-          return data?.[0] || body;
-        } else {
-          const { data, error } = await supabase.from(tableName).insert([body]).select();
-          if (error) throw error;
-          return data?.[0] || body;
-        }
-      } catch (supabaseError) {
-        // Fallback de Supabase no disponible (ej. tabla con RLS bloqueada para anon)
-        console.warn(`No se pudo cargar "${path}" desde Supabase:`, supabaseError?.message || supabaseError);
-      }
-      // Retornar arreglo vacío en vez de relanzar el error, para no bloquear el panel
-      console.warn(`Usando arreglo vacío para "${path}" — ninguna fuente disponible.`);
-      return [];
-    }
+    return adminRequest(apiUrl(id ? `${resource}/${encodeURIComponent(id)}` : resource), id ? 'PUT' : 'POST', body);
   };
 
   const setEditingRecord = (resource, id) => {
@@ -707,22 +597,16 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
     }
   };
 
-  const handleBusinessSettingsSave = (nextSettings) => {
+  const handleBusinessSettingsSave = async (settingsToSave) => {
     try {
-      const { theme, ...settingsToSave } = nextSettings;
-      localStorage.setItem(BUSINESS_SETTINGS_KEY, JSON.stringify(settingsToSave));
-      setBusinessSettings(settingsToSave);
-      if (theme && theme !== adminTheme) {
-        localStorage.setItem('adminTheme', theme);
-        setAdminTheme(theme);
-      }
+      await saveSettings(settingsToSave);
       const activitySaved = recordActivity('Actualizó la configuración del negocio.');
-      setAdminNotice('Configuración guardada en este navegador.');
+      setAdminNotice('Configuración guardada para todos los dispositivos.');
       setAdminError(activitySaved ? '' : 'La configuración se guardó, pero no se pudo guardar en el historial local.');
       return true;
     } catch (error) {
       console.error('No se pudo guardar la configuración del negocio.', error);
-      setAdminError('No se pudo guardar la configuración en este navegador.');
+      setAdminError(error.message || 'No se pudo guardar la configuración del negocio.');
       return false;
     }
   };
@@ -1052,8 +936,11 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
             </div>
           </header>
           {adminError && <div className="admin-feedback is-error" role="alert">{adminError}</div>}
+          {collectionError && <div className="admin-feedback is-error" role="alert">{collectionError}</div>}
+          {helpLoadError && <div className="admin-feedback is-error" role="alert">{helpLoadError}</div>}
           {adminNotice && <div className="admin-feedback is-success" role="status">{adminNotice}</div>}
-          {activeMenu === 'dashboard' && <DashboardSection {...{ ingresosHoy, totalIngresos, stockCritico, mesasOcupadas, mesasDisponibles, licores, reservas, facturas }} />}
+          <AdminNotices permissions={adminPermissions} orders={reservas} helpRequests={helpRequests} products={licores} onNavigate={setActiveMenu} />
+          {activeMenu === 'dashboard' && <DashboardSection {...{ ingresosHoy, totalIngresos, stockCritico, mesasOcupadas, mesasDisponibles, licores, reservas, facturas }} currency={businessSettings.currency} />}
           {activeMenu === 'licores' && <LicoresSection {...{ licores, categorias, name, setName, price, setPrice, stock, setStock, category, setCategory, productDescription, setProductDescription, productPresentation, setProductPresentation, productGraduation, setProductGraduation, productOrigin, setProductOrigin, productBrand, setProductBrand, imageFile, setImageFile, editingId, setEditingId, handleLicorSubmit, handleEliminarLicor }} />}
           {activeMenu === 'mesas' && <MesasSection {...{ mesas, mesaNum, setMesaNum, seats, setSeats, editingId: editingRecords.mesas, setEditingRecord, handleMesaSubmit, handleLiberarMesa, handleEliminarMesa, handleDeleteRecord }} />}
           {activeMenu === 'ayuda' && <HelpRequestsSection requests={helpRequests} onUpdateStatus={updateHelpRequest} />}
@@ -1074,7 +961,7 @@ export default function AdminPanel({ licores, mesas, fetchAll }) {
           }} />}
           {activeMenu === 'resenas' && <ResenasSection {...{ resenas, resenaCliente, setResenaCliente, resenaComentario, setResenaComentario, resenaPuntuacion, setResenaPuntuacion, editingId: editingRecords.resenas, setEditingRecord, handleResenaSubmit, handleDeleteRecord }} />}
           {activeMenu === 'categorias' && <CategoriasSection {...{ nuevaCat, setNuevaCat, editingId: editingRecords.categorias, setEditingRecord, handleCategoriaSubmit, handleDeleteRecord, categorias }} />}
-          {activeMenu === 'configuracion' && <BusinessSettingsSection settings={businessSettings} adminTheme={adminTheme} onSave={handleBusinessSettingsSave} onThemeChange={saveTheme} />}
+          {activeMenu === 'configuracion' && <BusinessSettingsSection settings={businessSettings} settingsLoaded={settingsLoaded} settingsError={settingsError} onRefresh={refreshSettings} adminTheme={adminTheme} onSave={handleBusinessSettingsSave} onThemeChange={saveTheme} />}
           {activeMenu === 'reportes' && <ReportsSection reservas={reservas} facturas={facturas} currency={businessSettings.currency} />}
           {activeMenu === 'actividad' && <ActivitySection activities={activities} onClear={handleActivityClear} />}
           {activeMenu === 'clientes' && <CustomersSection reservas={reservas} facturas={facturas} currency={businessSettings.currency} profiles={clientProfiles} profilesError={clientProfilesError} />}

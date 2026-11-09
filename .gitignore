@@ -21,4 +21,5 @@ backend/db.json
 .vscode/
 
 # Migraciones de base de datos
-backend/migrations/
+backend/migrations/*
+!backend/migrations/20261108_create_business_settings.sql

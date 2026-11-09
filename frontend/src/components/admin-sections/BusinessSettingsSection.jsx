@@ -1,23 +1,38 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AdminSectionHeader } from './AdminSectionHeader';
 
-export default function BusinessSettingsSection({ settings, adminTheme, onSave, onThemeChange }) {
+export default function BusinessSettingsSection({ settings, settingsLoaded, settingsError, onRefresh, adminTheme, onSave, onThemeChange }) {
   const [form, setForm] = useState(settings);
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!dirty) setForm(settings);
+  }, [settings, dirty]);
 
   const updateField = (field, value) => {
     setSaved(false);
+    setDirty(true);
     setForm(current => ({ ...current, [field]: value }));
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    setSaved(onSave({ ...form, theme: adminTheme }));
+    setSaving(true);
+    try {
+      const success = await onSave(form);
+      setSaved(success);
+      if (success) setDirty(false);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="panel-section admin-module">
       <AdminSectionHeader icon="⚙️" title="Configuración del negocio" description="Personaliza los datos visibles del local, horarios, moneda y apariencia." />
+      {settingsError && <p className="admin-form-error" role="alert">{settingsError} <button type="button" className="admin-secondary-btn" onClick={onRefresh}>Reintentar</button></p>}
       <form className="form-grid-pro admin-crud-form admin-settings-form" onSubmit={handleSubmit}>
         <label>
           Nombre del negocio
@@ -51,7 +66,7 @@ export default function BusinessSettingsSection({ settings, adminTheme, onSave, 
           <input type="url" value={form.mapUrl || ''} onChange={event => updateField('mapUrl', event.target.value)} maxLength="500" placeholder="https://maps.google.com/..." />
         </label>
         <label>
-          Moneda para reportes
+          Moneda predeterminada del negocio
           <select value={form.currency} onChange={event => updateField('currency', event.target.value)}>
             <option value="USD">Dólar estadounidense (USD)</option>
             <option value="MXN">Peso mexicano (MXN)</option>
@@ -69,11 +84,11 @@ export default function BusinessSettingsSection({ settings, adminTheme, onSave, 
           </select>
         </label>
         <div className="admin-form-actions">
-          <button type="submit" className="btn-neon">Guardar configuración</button>
+          <button type="submit" className="btn-neon" disabled={!settingsLoaded || Boolean(settingsError) || saving}>{saving ? 'Guardando…' : 'Guardar configuración'}</button>
           {saved && <span className="admin-settings-saved" role="status">Configuración guardada.</span>}
         </div>
       </form>
-      <p className="admin-settings-note">Estas preferencias se guardan en este navegador y no sincronizan con otros dispositivos.</p>
+      <p className="admin-settings-note">Los datos del negocio se comparten entre dispositivos. Cambiar la moneda no convierte los importes. El tema es una preferencia de este navegador.</p>
     </div>
   );
 }

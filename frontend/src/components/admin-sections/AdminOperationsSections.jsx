@@ -9,7 +9,8 @@ function useAdminCollection(path) {
   const refresh = useCallback(async () => {
     try {
       const data = await adminRequest(apiUrl(path));
-      setItems(Array.isArray(data) ? data : []);
+      if (!Array.isArray(data)) throw new Error(`La respuesta de ${path} no tiene el formato esperado.`);
+      setItems(data);
       setError('');
     } catch (requestError) {
       console.error(`No se pudo cargar ${path}.`, requestError);

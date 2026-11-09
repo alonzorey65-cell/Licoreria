@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiAssetUrl, apiUrl } from '../../api/apiConfig';
+import { getPromotionExpiration, isPromotionExpired } from '../../utils/promotionDates';
 
 function PromotionImage({ image, title }) {
   const [failed, setFailed] = useState(false);
@@ -17,13 +18,6 @@ function getRelatedProduct(promo, products) {
   return products.find(product => product.name && text.includes(product.name.toLocaleLowerCase('es')));
 }
 
-function getExpiration(promo) {
-  const date = promo.vigente_hasta || promo.fecha_fin || promo.expires_at || promo.fechaExpiracion;
-  if (!date) return null;
-  const dateText = String(date);
-  return /^\d{4}-\d{2}-\d{2}$/.test(dateText) ? new Date(`${dateText}T23:59:59`) : new Date(dateText);
-}
-
 export default function ClientPromos({ products = [], onProductSelect, locale = 'es' }) {
   const english = locale === 'en';
   const [promos, setPromos] = useState([]);
@@ -31,10 +25,15 @@ export default function ClientPromos({ products = [], onProductSelect, locale = 
   const [error, setError] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [validity, setValidity] = useState('all');
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let active = true;
-    fetch(apiUrl('promociones'))
+    let inProgress = false;
+    const refresh = () => {
+      if (inProgress) return;
+      inProgress = true;
+      fetch(apiUrl('promociones'))
       .then(response => {
         if (!response.ok) throw new Error(`No se pudieron cargar las promociones (${response.status}).`);
         return response.json();
@@ -51,16 +50,24 @@ export default function ClientPromos({ products = [], onProductSelect, locale = 
         if (active) setError('No pudimos cargar las promociones en este momento.');
       })
       .finally(() => {
+        inProgress = false;
         if (active) setLoading(false);
       });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    const timer = window.setInterval(refresh, 30000);
 
-    return () => { active = false; };
-  }, []);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refresh);
+      window.clearInterval(timer);
+    };
+  }, [reload]);
 
   const activePromos = promos.filter(promo => {
     if (promo.activa === false || promo.active === false) return false;
-    const expiration = getExpiration(promo);
-    return !expiration || Number.isNaN(expiration.getTime()) || expiration >= new Date();
+    return !isPromotionExpired(promo);
   });
   const promoCategories = [...new Set(activePromos.map(promo => {
     const related = getRelatedProduct(promo, products);
@@ -68,7 +75,7 @@ export default function ClientPromos({ products = [], onProductSelect, locale = 
   }).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'es'));
   const visiblePromos = activePromos.filter(promo => {
     const category = promo.categoria || promo.category || getRelatedProduct(promo, products)?.category || '';
-    const expiration = getExpiration(promo);
+    const expiration = getPromotionExpiration(promo);
     const daysLeft = expiration ? (expiration.getTime() - Date.now()) / 86400000 : null;
     const matchesCategory = !selectedCategory || category === selectedCategory;
     const matchesValidity = validity === 'all'
@@ -104,15 +111,18 @@ export default function ClientPromos({ products = [], onProductSelect, locale = 
       {loading ? (
         <p className="promotions-empty" role="status">{english ? 'Loading current offers…' : 'Cargando las propuestas de la casa…'}</p>
       ) : error ? (
-        <p className="promotions-empty is-error" role="status">{error}</p>
+        <div className="promotions-empty is-error" role="alert">
+          <p>{english ? 'Could not load offers right now.' : error}</p>
+          <button type="button" className="promotion-product-link" onClick={() => { setLoading(true); setReload(value => value + 1); }}>{english ? 'Try again' : 'Reintentar'}</button>
+        </div>
       ) : visiblePromos.length > 0 ? (
         <div className="promotions-grid">
           {visiblePromos.map((promo, index) => {
             const relatedProduct = getRelatedProduct(promo, products);
-            const expiration = getExpiration(promo);
+            const expiration = getPromotionExpiration(promo);
             return (
             <article className="promotion-card" key={promo.id}>
-              <PromotionImage image={promo.imagen || promo.image} title={promo.titulo} />
+              <PromotionImage key={promo.imagen || promo.image || 'none'} image={promo.imagen || promo.image} title={promo.titulo} />
               <div className="promotion-copy">
                 <span className="promotion-number">{english ? 'OFFER' : 'PROMOCIÓN'} 0{index + 1}</span>
                 <h3>{promo.titulo}</h3>

@@ -17,6 +17,7 @@ import ClientOrderHistory from './client-sections/ClientOrderHistory';
 import ClientTableAvailability from './client-sections/ClientTableAvailability';
 import ClientAccount from './client-sections/ClientAccount';
 import { getSupabaseClient, hasVerifiedCustomerIdentity } from '../api/supabaseClient';
+import { useBusinessSettings } from '../hooks/BusinessSettingsContext';
 
 const FAVORITES_KEY = 'clientFavoriteProducts';
 const CLIENT_THEME_KEY = 'clientTheme';
@@ -26,20 +27,13 @@ const CLIENT_ACCESSIBILITY_KEY = 'clientAccessibility';
 function getStorePreferences() {
   try {
     const saved = JSON.parse(localStorage.getItem('clientStorePreferences') || '{}');
-    let businessCurrency = 'USD';
-    try {
-      const businessSettings = JSON.parse(localStorage.getItem('businessSettings') || '{}');
-      if (['USD', 'MXN', 'COP', 'PEN', 'EUR'].includes(businessSettings.currency)) businessCurrency = businessSettings.currency;
-    } catch (error) {
-      console.error('No se pudo recuperar la moneda configurada para el local.', error);
-    }
     return {
       locale: saved.locale === 'en' ? 'en' : 'es',
-      currency: ['USD', 'MXN', 'COP', 'PEN', 'EUR'].includes(saved.currency) ? saved.currency : businessCurrency
+      currency: ['USD', 'MXN', 'COP', 'PEN', 'EUR'].includes(saved.currency) ? saved.currency : null
     };
   } catch (error) {
     console.error('No se pudieron recuperar las preferencias de idioma y moneda.', error);
-    return { locale: 'es', currency: 'USD' };
+    return { locale: 'es', currency: null };
   }
 }
 
@@ -105,7 +99,9 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
   const [cart, setCart] = useState([]);
   const [clientName, setClientName] = useState('');
   const [clientContact, setClientContact] = useState('');
-  const [storePreferences, setStorePreferences] = useState(getStorePreferences);
+  const [savedPreferences, setStorePreferences] = useState(getStorePreferences);
+  const { settings: businessSettings, error: settingsError, refresh: refreshSettings } = useBusinessSettings();
+  const storePreferences = { ...savedPreferences, currency: savedPreferences.currency || businessSettings.currency };
   const [clientSession, setClientSession] = useState(null);
   const [reservationTime, setReservationTime] = useState('');
   const [fulfillmentMode, setFulfillmentMode] = useState('dine_in');
@@ -276,11 +272,11 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
 
   useEffect(() => {
     try {
-      localStorage.setItem('clientStorePreferences', JSON.stringify(storePreferences));
+      localStorage.setItem('clientStorePreferences', JSON.stringify(savedPreferences));
     } catch (error) {
       console.error('No se pudieron guardar las preferencias de idioma y moneda.', error);
     }
-  }, [storePreferences]);
+  }, [savedPreferences]);
 
   useEffect(() => {
     const sharedBasket = new URLSearchParams(window.location.search).get('lista');
@@ -684,9 +680,15 @@ export default function ClientCatalog({ licores, mesas, fetchAll, catalogLoading
           accessibility={accessibility}
           onToggleAccessibility={toggleAccessibility}
           locale={storePreferences.locale}
-          currency={storePreferences.currency}
+          currency={savedPreferences.currency}
           onStorePreferencesChange={next => setStorePreferences(current => ({ ...current, ...next }))}
         />
+        {settingsError && (
+          <div className="store-feedback is-error" role="alert">
+            <span>{settingsError}</span>
+            <button type="button" onClick={refreshSettings}>Reintentar</button>
+          </div>
+        )}
         {catalogError && (
           <div className="store-feedback is-error" role="alert">
             <span>{catalogError}</span>

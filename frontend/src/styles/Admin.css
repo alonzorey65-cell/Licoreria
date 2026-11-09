@@ -344,6 +344,19 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   line-height: 1.5;
 }
 
+.admin-notices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.admin-notices strong {
+  color: var(--text-main);
+  font-size: 0.85rem;
+}
+
 .admin-feedback.is-error {
   border-color: rgba(248, 113, 113, 0.35);
   background: rgba(127, 29, 29, 0.2);

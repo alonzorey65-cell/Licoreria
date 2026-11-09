@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { parseOffer } from './src/offerValidation.js';
+import { formatBusinessSettings, parseBusinessSettings } from './src/businessSettings.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -88,7 +90,7 @@ async function getCheckoutDiscounts({ promoCode, giftCardCode, currency, total, 
             ? remaining * Math.min(Number(promo.discount_value), 100) / 100
             : Number(promo.discount_value);
         const amount = Math.min(remaining, value);
-        result.promo = { code, amount, redemptionCount: promo.redemption_count };
+        result.promo = { code, amount, redemptionCount: promo.redemption_count, snapshot: promo };
         result.discount += amount;
         remaining -= amount;
     }
@@ -103,7 +105,7 @@ async function getCheckoutDiscounts({ promoCode, giftCardCode, currency, total, 
             throw new Error('La tarjeta de regalo no es válida, venció o no tiene saldo.');
         }
         const amount = Math.min(remaining, Number(giftCard.balance));
-        result.giftCard = { code, amount, balance: Number(giftCard.balance) };
+        result.giftCard = { code, amount, balance: Number(giftCard.balance), snapshot: giftCard };
         result.discount += amount;
         remaining -= amount;
     }
@@ -128,21 +130,32 @@ async function claimCheckoutDiscounts(discounts, clientId, useRewardsCredit) {
     try {
         if (discounts.promo) {
             const count = discounts.promo.redemptionCount;
-            const { data, error } = await supabase.from('store_promo_codes')
+            const promo = discounts.promo.snapshot;
+            let query = supabase.from('store_promo_codes')
                 .update({ redemption_count: count + 1 })
                 .eq('code', discounts.promo.code)
                 .eq('redemption_count', count)
-                .select('code').maybeSingle();
+                .eq('active', true)
+                .eq('discount_type', promo.discount_type)
+                .eq('discount_value', promo.discount_value)
+                .eq('currency', promo.currency);
+            query = promo.max_redemptions === null ? query.is('max_redemptions', null) : query.eq('max_redemptions', promo.max_redemptions);
+            query = promo.expires_at === null ? query.is('expires_at', null) : query.eq('expires_at', promo.expires_at);
+            const { data, error } = await query.select('code').maybeSingle();
             if (error) throw error;
             if (!data) throw new Error('El código promocional se acaba de agotar. Intenta de nuevo.');
             claims.push({ type: 'promo', code: discounts.promo.code, count });
         }
         if (discounts.giftCard) {
-            const { data, error } = await supabase.from('store_gift_cards')
+            const card = discounts.giftCard.snapshot;
+            let query = supabase.from('store_gift_cards')
                 .update({ balance: discounts.giftCard.balance - discounts.giftCard.amount })
                 .eq('code', discounts.giftCard.code)
                 .eq('balance', discounts.giftCard.balance)
-                .select('code').maybeSingle();
+                .eq('active', true)
+                .eq('currency', card.currency);
+            query = card.expires_at === null ? query.is('expires_at', null) : query.eq('expires_at', card.expires_at);
+            const { data, error } = await query.select('code').maybeSingle();
             if (error) throw error;
             if (!data) throw new Error('El saldo de la tarjeta cambió. Vuelve a validar el código.');
             claims.push({ type: 'gift', code: discounts.giftCard.code, balance: discounts.giftCard.balance, amount: discounts.giftCard.amount });
@@ -203,6 +216,7 @@ app.get('/api/public-config', (req, res) => {
 });
 
 const publicApiRequests = new Set([
+    'GET /business-settings',
     'GET /licores',
     'GET /mesas',
     'GET /promociones',
@@ -219,6 +233,7 @@ const publicApiRequests = new Set([
 ]);
 
 const resourcePermissions = {
+    'business-settings': 'configuracion',
     licores: 'licores',
     mesas: 'mesas',
     reservas: 'reservas',
@@ -301,6 +316,34 @@ app.use('/api', async (req, res, next) => {
     } catch (error) {
         console.error('No se pudo validar el acceso administrativo.', error);
         return res.status(503).json({ error: 'No se pudo validar el acceso. Revisa la configuración y las migraciones de Supabase.' });
+    }
+});
+
+app.get('/api/business-settings', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('business_settings').select('*').eq('id', 1).single();
+        if (error) throw error;
+        res.set('Cache-Control', 'no-store');
+        return res.json(formatBusinessSettings(data));
+    } catch (error) {
+        console.error('No se pudo cargar la configuración del negocio.', error);
+        return res.status(503).json({ error: 'No se pudo cargar la configuración del negocio. Verifica la migración de Supabase.' });
+    }
+});
+
+app.put('/api/business-settings', async (req, res) => {
+    let settings;
+    try { settings = parseBusinessSettings(req.body); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+    try {
+        const { data, error } = await supabase.from('business_settings')
+            .upsert({ id: 1, ...settings, updated_at: new Date().toISOString() })
+            .select().single();
+        if (error) throw error;
+        return res.json(formatBusinessSettings(data));
+    } catch (error) {
+        console.error('No se pudo guardar la configuración del negocio.', error);
+        return res.status(503).json({ error: 'No se pudo guardar la configuración del negocio. Verifica la migración de Supabase.' });
     }
 });
 
@@ -432,8 +475,10 @@ app.delete('/api/mesas/:id', async (req, res) => {
 
 app.post('/api/mesas/liberar', async (req, res) => {
     try {
-        const { error } = await supabase.from('mesas').update({ status: 'Disponible' }).eq('number', req.body.mesaNumber);
+        const { data, error } = await supabase.from('mesas').update({ status: 'Disponible' })
+            .eq('number', req.body.mesaNumber).select('id');
         if (error) throw error;
+        if (!data.length) return res.status(404).json({ error: 'No se encontró la mesa que se quiere liberar.' });
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -680,22 +725,11 @@ app.get('/api/ofertas-admin', async (req, res) => {
 
 app.post('/api/ofertas-admin/promo', async (req, res) => {
     const body = req.body || {};
-    const code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : '';
-    const discountType = body.discountType;
-    const discountValue = Number(body.discountValue);
-    const currency = String(body.currency || 'USD').toUpperCase();
-    const maxRedemptions = body.maxRedemptions === '' || body.maxRedemptions == null ? null : Number(body.maxRedemptions);
-    if (!/^[A-Z0-9_-]{3,40}$/.test(code) || !['percent', 'fixed'].includes(discountType)
-        || !Number.isFinite(discountValue) || discountValue <= 0 || (discountType === 'percent' && discountValue > 100)
-        || !['USD', 'MXN', 'COP', 'PEN', 'EUR'].includes(currency)
-        || (maxRedemptions !== null && (!Number.isInteger(maxRedemptions) || maxRedemptions < 1))) {
-        return res.status(400).json({ error: 'Revisa el código, descuento, moneda y límite de usos.' });
-    }
+    let promo;
+    try { promo = parseOffer('promo', body); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
     try {
-        const { data, error } = await supabase.from('store_promo_codes').insert([{
-            code, discount_type: discountType, discount_value: discountValue, currency,
-            max_redemptions: maxRedemptions, expires_at: body.expiresAt || null
-        }]).select().single();
+        const { data, error } = await supabase.from('store_promo_codes').insert([promo]).select().single();
         if (error) throw error;
         return res.status(201).json(data);
     } catch (error) {
@@ -706,17 +740,11 @@ app.post('/api/ofertas-admin/promo', async (req, res) => {
 
 app.post('/api/ofertas-admin/gift-card', async (req, res) => {
     const body = req.body || {};
-    const code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : '';
-    const balance = Number(body.balance);
-    const currency = String(body.currency || 'USD').toUpperCase();
-    if (!/^[A-Z0-9_-]{3,40}$/.test(code) || !Number.isFinite(balance) || balance <= 0
-        || !['USD', 'MXN', 'COP', 'PEN', 'EUR'].includes(currency)) {
-        return res.status(400).json({ error: 'Revisa el código, saldo y moneda de la tarjeta.' });
-    }
+    let card;
+    try { card = parseOffer('gift-card', body); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
     try {
-        const { data, error } = await supabase.from('store_gift_cards').insert([{
-            code, balance, currency, expires_at: body.expiresAt || null
-        }]).select('code,balance,currency,active,expires_at').single();
+        const { data, error } = await supabase.from('store_gift_cards').insert([card]).select('code,balance,currency,active,expires_at').single();
         if (error) throw error;
         return res.status(201).json(data);
     } catch (error) {
@@ -725,10 +753,46 @@ app.post('/api/ofertas-admin/gift-card', async (req, res) => {
     }
 });
 
+app.put('/api/ofertas-admin/:kind/:code', async (req, res) => {
+    const { kind, code } = req.params;
+    const table = kind === 'promo' ? 'store_promo_codes' : kind === 'gift-card' ? 'store_gift_cards' : null;
+    if (!table) return res.status(400).json({ error: 'El tipo de código no es válido.' });
+    let offer;
+    try { offer = parseOffer(kind, { ...req.body, code }, true); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+
+    const expected = req.body?.expectedValue;
+    if (expected === '' || expected == null || !Number.isFinite(Number(expected)) || Number(expected) < 0
+        || (kind === 'promo' && !Number.isInteger(Number(expected)))) {
+        return res.status(400).json({ error: 'Actualiza la lista antes de editar el código.' });
+    }
+    if (kind === 'promo' && offer.max_redemptions !== null && offer.max_redemptions < Number(expected)) {
+        return res.status(400).json({ error: 'El límite no puede ser menor que los usos ya registrados.' });
+    }
+    try {
+        const field = kind === 'promo' ? 'redemption_count' : 'balance';
+        const { data, error } = await supabase.from(table).update(offer).eq('code', code)
+            .eq(field, Number(expected)).select().maybeSingle();
+        if (error) throw error;
+        if (!data) return res.status(409).json({ error: 'El código cambió o ya no existe. Actualiza la lista antes de editarlo.' });
+        return res.json(data);
+    } catch (error) {
+        console.error('No se pudo actualizar el código de oferta.', error);
+        return res.status(500).json({ error: 'No se pudo actualizar el código.' });
+    }
+});
+
 app.delete('/api/ofertas-admin/:kind/:code', async (req, res) => {
     const table = req.params.kind === 'promo' ? 'store_promo_codes' : req.params.kind === 'gift-card' ? 'store_gift_cards' : null;
     if (!table) return res.status(400).json({ error: 'El tipo de código no es válido.' });
     try {
+        const orderField = req.params.kind === 'promo' ? 'promo_code' : 'gift_card_code';
+        const { data: orders, error: orderError } = await supabase.from('reservas')
+            .select('id').eq(orderField, req.params.code).limit(1);
+        if (orderError) throw orderError;
+        if (orders.length) {
+            return res.status(409).json({ error: 'Este código está asociado a pedidos y no se puede eliminar. Desactívalo desde Editar para conservar el historial y los reembolsos.' });
+        }
         const { data, error } = await supabase.from(table).delete().eq('code', req.params.code).select('code').maybeSingle();
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'No se encontró el código.' });

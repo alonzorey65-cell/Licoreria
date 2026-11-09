@@ -1,27 +1,8 @@
-import React, { useState } from 'react';
-
-function getBusinessIdentity() {
-  try {
-    const settings = JSON.parse(localStorage.getItem('businessSettings') || '{}');
-    return {
-      name: typeof settings.businessName === 'string' && settings.businessName.trim() ? settings.businessName.trim() : 'CASA VINO',
-      hours: typeof settings.openingHours === 'string' && settings.openingHours.trim() ? settings.openingHours.trim() : ''
-    };
-  } catch (error) {
-    console.error('No se pudo recuperar el nombre y horario del negocio.', error);
-    return { name: 'CASA VINO', hours: '' };
-  }
-}
+import React from 'react';
+import { useBusinessSettings } from '../../hooks/BusinessSettingsContext';
 
 export function ClientBusinessInfo() {
-  const [settings] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('businessSettings') || '{}');
-    } catch (error) {
-      console.error('No se pudieron recuperar los datos de contacto del negocio.', error);
-      return {};
-    }
-  });
+  const { settings } = useBusinessSettings();
   const mapUrl = (() => {
     try {
       const url = new URL(settings.mapUrl);
@@ -70,9 +51,9 @@ export const clientThemes = [
 export default function ClientHeader({
   cartCount = 0, activeView, onNavigate, theme, onThemeChange,
   accessibility = { largeText: false, reduceMotion: false }, onToggleAccessibility,
-  locale = 'es', currency = 'USD', onStorePreferencesChange = () => {}
+  locale = 'es', currency = null, onStorePreferencesChange = () => {}
 }) {
-  const [businessIdentity] = useState(getBusinessIdentity);
+  const { settings } = useBusinessSettings();
   const scrollNavigationOnWheel = event => {
     const navigation = event.currentTarget;
     if (navigation.scrollWidth <= navigation.clientWidth || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -85,9 +66,9 @@ export default function ClientHeader({
       <a className="store-brand" href="/" aria-label="VIP Bar, inicio">
         <span className="store-brand-mark" aria-hidden="true">V</span>
         <span>
-          <strong>{businessIdentity.name}</strong>
+          <strong>{settings.businessName}</strong>
           <small>BAR · LICORERÍA</small>
-          {businessIdentity.hours && <small className="store-brand-hours">{businessIdentity.hours}</small>}
+          {settings.openingHours && <small className="store-brand-hours">{settings.openingHours}</small>}
         </span>
       </a>
       <nav className="store-nav" aria-label="Navegación principal" onWheel={scrollNavigationOnWheel}>
@@ -123,7 +104,8 @@ export default function ClientHeader({
       </label>
       <label className="store-preference-picker">
         <span className="store-theme-label">{locale === 'en' ? 'Currency (no conversion)' : 'Moneda (sin conversión)'}</span>
-        <select value={currency} onChange={event => onStorePreferencesChange({ currency: event.target.value })} aria-label="Cambiar moneda">
+        <select value={currency || ''} onChange={event => onStorePreferencesChange({ currency: event.target.value || null })} aria-label="Cambiar moneda">
+          <option value="">{locale === 'en' ? `Store currency (${settings.currency})` : `Moneda del local (${settings.currency})`}</option>
           <option value="USD">USD</option>
           <option value="MXN">MXN</option>
           <option value="COP">COP</option>

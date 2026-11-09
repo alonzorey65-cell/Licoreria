@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AdminRowActions, AdminSectionHeader } from './AdminSectionHeader';
 import { apiAssetUrl, apiUrl } from '../../api/apiConfig';
 import { adminRequest } from '../../api/adminApi';
+import { isPromotionExpired } from '../../utils/promotionDates';
 
 function generateOfferCode(prefix) {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -11,18 +12,56 @@ function generateOfferCode(prefix) {
   return `${prefix}-${suffix}`;
 }
 
+function dateTimeLocal(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function offerStatus(item) {
+  if (!item.active) return 'Inactiva';
+  if (item.expires_at && new Date(item.expires_at) < new Date()) return 'Vencida';
+  return 'Activa';
+}
+
 function OfferCodesManager({ currency = 'PEN' }) {
   const [offers, setOffers] = useState({ promoCodes: [], giftCards: [] });
   const [promo, setPromo] = useState(() => ({ code: generateOfferCode('PROMO'), discountType: 'percent', discountValue: '', currency, maxRedemptions: '', expiresAt: '' }));
   const [gift, setGift] = useState(() => ({ code: generateOfferCode('REGALO'), balance: '', currency, expiresAt: '' }));
+  const [editingPromo, setEditingPromo] = useState(null);
+  const [editingGift, setEditingGift] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setPromo(current => ({ ...current, currency }));
-    setGift(current => ({ ...current, currency }));
-  }, [currency]);
+    if (!editingPromo) setPromo(current => ({ ...current, currency }));
+    if (!editingGift) setGift(current => ({ ...current, currency }));
+  }, [currency, editingPromo, editingGift]);
+
+  const reset = kind => {
+    if (kind === 'promo') {
+      setEditingPromo(null);
+      setPromo({ code: generateOfferCode('PROMO'), discountType: 'percent', discountValue: '', currency, maxRedemptions: '', expiresAt: '', active: true });
+    } else {
+      setEditingGift(null);
+      setGift({ code: generateOfferCode('REGALO'), balance: '', currency, expiresAt: '', active: true });
+    }
+  };
+
+  const edit = (kind, item) => {
+    setError('');
+    setNotice('');
+    if (kind === 'promo') {
+      setEditingPromo({ code: item.code, expectedValue: item.redemption_count });
+      setPromo({ code: item.code, discountType: item.discount_type, discountValue: item.discount_value, currency: item.currency, maxRedemptions: item.max_redemptions ?? '', expiresAt: dateTimeLocal(item.expires_at), active: item.active });
+    } else {
+      setEditingGift({ code: item.code, expectedValue: item.balance });
+      setGift({ code: item.code, balance: item.balance, currency: item.currency, expiresAt: dateTimeLocal(item.expires_at), active: item.active });
+    }
+  };
 
   const refresh = async () => {
     const data = await adminRequest(apiUrl('ofertas-admin'));
@@ -40,36 +79,66 @@ function OfferCodesManager({ currency = 'PEN' }) {
     event.preventDefault();
     const isPromo = kind === 'promo';
     const values = isPromo ? promo : gift;
+    const editing = isPromo ? editingPromo : editingGift;
     setBusy(true);
     setError('');
     setNotice('');
+    let saved = false;
     try {
-      await adminRequest(apiUrl(`ofertas-admin/${isPromo ? 'promo' : 'gift-card'}`), 'POST', values);
-      if (isPromo) setPromo(current => ({ ...current, code: generateOfferCode('PROMO'), discountValue: '', maxRedemptions: '', expiresAt: '' }));
-      else setGift(current => ({ ...current, code: generateOfferCode('REGALO'), balance: '', expiresAt: '' }));
+      const resource = isPromo ? 'promo' : 'gift-card';
+      const payload = { ...values, expiresAt: values.expiresAt ? new Date(values.expiresAt).toISOString() : null };
+      if (editing) payload.expectedValue = editing.expectedValue;
+      await adminRequest(apiUrl(`ofertas-admin/${resource}${editing ? `/${encodeURIComponent(editing.code)}` : ''}`), editing ? 'PUT' : 'POST', payload);
+      saved = true;
+      reset(kind);
       await refresh();
-      setNotice(isPromo
+      setNotice(editing ? 'Cambios guardados.' : isPromo
         ? (values.discountType === 'percent'
           ? 'Código promocional creado. El porcentaje se puede usar en cualquier moneda.'
           : `Código promocional creado para ${values.currency}.`)
         : `Tarjeta de regalo creada para ${values.currency}.`);
     } catch (requestError) {
       console.error('No se pudo guardar la oferta.', requestError);
-      setError(requestError.message);
+      setError(saved ? 'Se guardó el código, pero no se pudo actualizar la lista. Usa «Actualizar lista».' : requestError.message);
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async (kind, code) => {
-    if (!window.confirm(`¿Eliminar el código ${code}?`)) return;
+    if (!window.confirm(kind === 'gift-card'
+      ? `¿Eliminar la tarjeta ${code}? Su saldo dejará de estar disponible.`
+      : `¿Eliminar el código ${code}? Los clientes ya no podrán utilizarlo.`)) return;
+    setError('');
+    setNotice('');
+    setBusy(true);
+    let deleted = false;
     try {
       await adminRequest(apiUrl(`ofertas-admin/${kind}/${encodeURIComponent(code)}`), 'DELETE');
+      deleted = true;
+      if ((kind === 'promo' && editingPromo?.code === code) || (kind === 'gift-card' && editingGift?.code === code)) reset(kind === 'promo' ? 'promo' : 'gift');
       await refresh();
       setNotice(`Se eliminó ${code}.`);
     } catch (requestError) {
       console.error('No se pudo eliminar la oferta.', requestError);
+      setError(deleted ? 'Se eliminó el código, pero no se pudo actualizar la lista. Usa «Actualizar lista».' : requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const refreshList = async () => {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await refresh();
+      setNotice('Lista actualizada. Si estabas editando, cancela y vuelve a seleccionar el código para usar los datos actuales.');
+    } catch (requestError) {
+      console.error('No se pudieron actualizar los códigos.', requestError);
       setError(requestError.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -78,36 +147,43 @@ function OfferCodesManager({ currency = 'PEN' }) {
       <AdminSectionHeader icon="🎟️" title="Códigos y tarjetas de regalo" description="Crea códigos de descuento y tarjetas con saldo para que los clientes los apliquen al pedido." />
       {error && <p className="admin-form-error" role="alert">{error}</p>}
       {notice && <p className="admin-settings-saved" role="status">{notice}</p>}
+      <div><button className="admin-secondary-btn" type="button" onClick={refreshList} disabled={busy}>Actualizar lista</button></div>
       <div className="admin-offer-code-forms">
         <form className="form-grid-pro admin-crud-form" onSubmit={event => submit(event, 'promo')}>
-          <h3>Código promocional</h3>
-          <label>Código promocional<div className="admin-generated-code"><input value={promo.code} onChange={event => setPromo(current => ({ ...current, code: event.target.value.toUpperCase() }))} required minLength="3" maxLength="40" pattern="[A-Za-z0-9_-]+" /><button className="admin-action-btn" type="button" onClick={() => setPromo(current => ({ ...current, code: generateOfferCode('PROMO') }))}>Generar otro</button></div></label>
+          <h3>{editingPromo ? 'Editar código promocional' : 'Código promocional'}</h3>
+          <label>Código promocional<div className="admin-generated-code"><input value={promo.code} onChange={event => setPromo(current => ({ ...current, code: event.target.value.toUpperCase() }))} required minLength="3" maxLength="40" pattern="[A-Za-z0-9_-]+" readOnly={Boolean(editingPromo)} />{!editingPromo && <button className="admin-action-btn" type="button" onClick={() => setPromo(current => ({ ...current, code: generateOfferCode('PROMO') }))}>Generar otro</button>}</div></label>
           <label>Tipo de descuento<select value={promo.discountType} onChange={event => setPromo(current => ({ ...current, discountType: event.target.value }))}><option value="percent">Porcentaje</option><option value="fixed">Monto fijo</option></select></label>
           <label>Descuento<input type="number" value={promo.discountValue} onChange={event => setPromo(current => ({ ...current, discountValue: event.target.value }))} min="0.01" max={promo.discountType === 'percent' ? '100' : undefined} step="0.01" required /></label>
           <label>Moneda<select value={promo.currency} onChange={event => setPromo(current => ({ ...current, currency: event.target.value }))}>{['USD', 'MXN', 'COP', 'PEN', 'EUR'].map(code => <option key={code}>{code}</option>)}</select></label>
           <label>Usos máximos<input type="number" value={promo.maxRedemptions} onChange={event => setPromo(current => ({ ...current, maxRedemptions: event.target.value }))} min="1" placeholder="Sin límite" /></label>
           <label>Válido hasta<input type="datetime-local" value={promo.expiresAt} onChange={event => setPromo(current => ({ ...current, expiresAt: event.target.value }))} /></label>
-          <div className="admin-form-actions"><button className="btn-neon" type="submit" disabled={busy}>{busy ? 'Guardando…' : 'Crear código'}</button></div>
+          <label className="admin-checkbox-label"><input type="checkbox" checked={promo.active !== false} onChange={event => setPromo(current => ({ ...current, active: event.target.checked }))} /> Código activo</label>
+          <div className="admin-form-actions"><button className="btn-neon" type="submit" disabled={busy}>{busy ? 'Guardando…' : editingPromo ? 'Guardar código' : 'Crear código'}</button>{editingPromo && <button className="admin-secondary-btn" type="button" onClick={() => reset('promo')} disabled={busy}>Cancelar edición</button>}</div>
         </form>
         <form className="form-grid-pro admin-crud-form" onSubmit={event => submit(event, 'gift')}>
-          <h3>Tarjeta de regalo</h3>
-          <label>Código de tarjeta<div className="admin-generated-code"><input value={gift.code} onChange={event => setGift(current => ({ ...current, code: event.target.value.toUpperCase() }))} required minLength="3" maxLength="40" pattern="[A-Za-z0-9_-]+" /><button className="admin-action-btn" type="button" onClick={() => setGift(current => ({ ...current, code: generateOfferCode('REGALO') }))}>Generar otro</button></div></label>
-          <label>Saldo<input type="number" value={gift.balance} onChange={event => setGift(current => ({ ...current, balance: event.target.value }))} min="0.01" step="0.01" required /></label>
+          <h3>{editingGift ? 'Editar tarjeta de regalo' : 'Tarjeta de regalo'}</h3>
+          <label>Código de tarjeta<div className="admin-generated-code"><input value={gift.code} onChange={event => setGift(current => ({ ...current, code: event.target.value.toUpperCase() }))} required minLength="3" maxLength="40" pattern="[A-Za-z0-9_-]+" readOnly={Boolean(editingGift)} />{!editingGift && <button className="admin-action-btn" type="button" onClick={() => setGift(current => ({ ...current, code: generateOfferCode('REGALO') }))}>Generar otro</button>}</div></label>
+          <label>Saldo disponible<input type="number" value={gift.balance} onChange={event => setGift(current => ({ ...current, balance: event.target.value }))} min={editingGift ? '0' : '0.01'} step="0.01" required /></label>
           <label>Moneda<select value={gift.currency} onChange={event => setGift(current => ({ ...current, currency: event.target.value }))}>{['USD', 'MXN', 'COP', 'PEN', 'EUR'].map(code => <option key={code}>{code}</option>)}</select></label>
           <label>Válida hasta<input type="datetime-local" value={gift.expiresAt} onChange={event => setGift(current => ({ ...current, expiresAt: event.target.value }))} /></label>
-          <div className="admin-form-actions"><button className="btn-neon" type="submit" disabled={busy}>{busy ? 'Guardando…' : 'Crear tarjeta'}</button></div>
+          <label className="admin-checkbox-label"><input type="checkbox" checked={gift.active !== false} onChange={event => setGift(current => ({ ...current, active: event.target.checked }))} /> Tarjeta activa</label>
+          <div className="admin-form-actions"><button className="btn-neon" type="submit" disabled={busy}>{busy ? 'Guardando…' : editingGift ? 'Guardar tarjeta' : 'Crear tarjeta'}</button>{editingGift && <button className="admin-secondary-btn" type="button" onClick={() => reset('gift')} disabled={busy}>Cancelar edición</button>}</div>
         </form>
       </div>
       <div className="admin-offer-code-lists">
-        <div><h3>Códigos activos</h3>{offers.promoCodes.map(item => <article key={item.code}>
+        <div><h3>Códigos promocionales</h3>{offers.promoCodes.map(item => <article key={item.code}>
           <strong>{item.code}</strong><span>{item.discount_type === 'percent' ? `${item.discount_value}%` : `${item.currency} ${item.discount_value}`}</span>
           <small>{item.redemption_count} usos{item.max_redemptions ? ` / ${item.max_redemptions}` : ''}</small>
-          <button type="button" className="admin-action-btn is-delete" onClick={() => remove('promo', item.code)}>Eliminar</button>
-        </article>)}</div>
+          <small>{offerStatus(item)}</small>
+          <button type="button" className="admin-action-btn" disabled={busy} onClick={() => edit('promo', item)}>Editar</button>
+          <button type="button" className="admin-action-btn is-delete" disabled={busy} onClick={() => remove('promo', item.code)}>Eliminar</button>
+        </article>)}{offers.promoCodes.length === 0 && <p>No hay códigos promocionales.</p>}</div>
         <div><h3>Tarjetas</h3>{offers.giftCards.map(item => <article key={item.code}>
           <strong>{item.code}</strong><span>{item.currency} {Number(item.balance).toFixed(2)}</span>
-          <button type="button" className="admin-action-btn is-delete" onClick={() => remove('gift-card', item.code)}>Eliminar</button>
-        </article>)}</div>
+          <small>{offerStatus(item)}</small>
+          <button type="button" className="admin-action-btn" disabled={busy} onClick={() => edit('gift', item)}>Editar</button>
+          <button type="button" className="admin-action-btn is-delete" disabled={busy} onClick={() => remove('gift-card', item.code)}>Eliminar</button>
+        </article>)}{offers.giftCards.length === 0 && <p>No hay tarjetas de regalo.</p>}</div>
       </div>
     </section>
   );
@@ -194,7 +270,7 @@ export default function PromocionesSection({
           <h3>{promo.titulo}</h3>
           <p>{promo.descuento}</p>
           {promo.vigente_hasta && <small>Válida hasta {new Intl.DateTimeFormat('es', { dateStyle: 'medium' }).format(new Date(`${promo.vigente_hasta}T00:00:00`))}</small>}
-          <small>{promo.activa === false ? 'Inactiva' : 'Activa'}{promo.licor_id ? ` · ${licores.find(product => String(product.id) === String(promo.licor_id))?.name || 'Producto asociado'}` : ''}</small>
+          <small>{promo.activa === false ? 'Inactiva' : isPromotionExpired(promo) ? 'Vencida · no visible al cliente' : 'Activa'}{promo.licor_id ? ` · ${licores.find(product => String(product.id) === String(promo.licor_id))?.name || 'Producto asociado'}` : ''}</small>
           <AdminRowActions
             onEdit={() => {
               setEditingRecord('promociones', promo.id);

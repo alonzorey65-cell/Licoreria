@@ -34,7 +34,7 @@ export default function ClientWaiterView({ selectedMesa, mesas, clientName, acti
       if (!response.ok) throw new Error(result.error || `No se pudo enviar el aviso (${response.status}).`);
 
       setMessage('');
-      setFeedback({ type: 'success', text: 'Aviso enviado. El personal recibió tu solicitud.' });
+      setFeedback({ type: 'success', text: 'Tu solicitud fue registrada para que el personal pueda atenderla.' });
     } catch (error) {
       console.error('No se pudo enviar la solicitud de ayuda.', error);
       setFeedback({ type: 'error', text: error.message || 'No pudimos enviar el aviso. Inténtalo nuevamente.' });
